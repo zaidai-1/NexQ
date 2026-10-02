@@ -79,10 +79,12 @@ class Handler(BaseHTTPRequestHandler):
                 # microphone hiss. Keep words only when the model is confident
                 # that speech was present. Its default no-speech rule also
                 # requires log probability below -1, which missed noise on
-                # this PC (0.76 no-speech, -0.82 average log probability).
+                # this PC. Quiet mic bursts produced false "Thank you" at
+                # 0.59 no-speech / -1.28 log probability, while spoken test
+                # questions were below 0.03 no-speech.
                 text = " ".join(
                     segment.text.strip() for segment in segments
-                    if not (segment.no_speech_prob > 0.6 and segment.avg_logprob < -0.5)
+                    if not (segment.no_speech_prob > 0.5 and segment.avg_logprob < -0.5)
                 ).strip()
             self.respond(200, {"text": text})
         except Exception as exc:
