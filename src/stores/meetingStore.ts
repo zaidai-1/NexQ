@@ -7,6 +7,7 @@ import {
   saveMeetingAiInteractions,
   startCapture,
   startCapturePerParty,
+  prewarmOllamaModel,
   stopCapture,
 } from "../lib/ipc";
 import { useConfigStore } from "./configStore";
@@ -176,6 +177,9 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
       // 2. Sync recording toggle to backend before capture starts
       const config = useConfigStore.getState();
+      if (config.llmProvider === "ollama" && config.llmModel) {
+        void prewarmOllamaModel(config.llmModel).catch(() => {});
+      }
       try {
         const { setRecordingEnabled } = await import("../lib/ipc");
         await setRecordingEnabled(config.recordingEnabled);

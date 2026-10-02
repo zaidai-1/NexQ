@@ -4,6 +4,26 @@ use crate::llm::{LLMRouter, ProviderConfig};
 use crate::llm::openrouter_models;
 use crate::state::AppState;
 
+/// Load the selected Ollama model while meeting audio starts, before the
+/// first interviewer question needs an answer.
+#[command]
+pub async fn prewarm_ollama_model(model_id: String) -> Result<(), String> {
+    let response = reqwest::Client::new()
+        .post("http://127.0.0.1:11434/api/generate")
+        .timeout(std::time::Duration::from_secs(30))
+        .json(&serde_json::json!({
+            "model": model_id,
+            "prompt": "",
+            "stream": false,
+            "keep_alive": "30m"
+        }))
+        .send().await.map_err(|e| format!("Ollama warmup failed: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Ollama warmup returned {}", response.status()));
+    }
+    Ok(())
+}
+
 #[command]
 pub async fn set_llm_provider(
     provider: String,

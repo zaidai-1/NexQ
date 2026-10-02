@@ -169,6 +169,10 @@ export async function setActiveModel(
   return invoke("set_active_model", { provider, modelId });
 }
 
+export async function prewarmOllamaModel(modelId: string): Promise<void> {
+  return invoke("prewarm_ollama_model", { modelId });
+}
+
 export async function testLLMConnection(provider: string): Promise<boolean> {
   return invoke("test_llm_connection", { provider });
 }

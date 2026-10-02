@@ -529,6 +529,7 @@ pub fn run() {
             llm_commands::set_llm_provider,
             llm_commands::list_models,
             llm_commands::set_active_model,
+            llm_commands::prewarm_ollama_model,
             llm_commands::test_llm_connection,
             llm_commands::get_llm_providers,
             llm_commands::list_openrouter_models,
