@@ -1252,6 +1252,8 @@ pub async fn start_capture_per_party(
         let mut you_feed_error_emitted = false;
         let mut them_feed_error_emitted = false;
         let mut last_system_activity: Option<std::time::Instant> = None;
+        let mut last_system_packet: Option<std::time::Instant> = None;
+        let mut last_system_tail: Option<std::time::Instant> = None;
 
         loop {
             // WASAPI loopback may stop sending packets as soon as playback
@@ -1266,7 +1268,10 @@ pub async fn start_capture_per_party(
                     let needs_tail = last_system_activity.map_or(false, |t| {
                         t.elapsed() < std::time::Duration::from_secs(5)
                     });
-                    if needs_tail && !them_muted_flag.load(Ordering::Relaxed) {
+                    let tail_due = last_system_tail.map_or(true, |t| {
+                        t.elapsed() >= std::time::Duration::from_millis(100)
+                    });
+                    if needs_tail && tail_due && !them_muted_flag.load(Ordering::Relaxed) {
                         if let Some(ref mut provider) = them_stt_provider {
                             let _ = provider.feed_audio(crate::audio::AudioChunk {
                                 pcm_data: vec![0; 1600],
@@ -1274,11 +1279,40 @@ pub async fn start_capture_per_party(
                                 timestamp_ms: 0,
                                 is_speech: false,
                             }).await;
+                            last_system_tail = Some(std::time::Instant::now());
                         }
                     }
                     continue;
                 }
             };
+            if chunk.source == AudioSource::System {
+                last_system_packet = Some(std::time::Instant::now());
+            } else {
+                // Microphone packets may continue indefinitely after system
+                // loopback goes quiet, so the receiver timeout never fires.
+                let needs_tail = last_system_activity.map_or(false, |t| {
+                    t.elapsed() < std::time::Duration::from_secs(5)
+                });
+                let loopback_stopped = last_system_packet.map_or(false, |t| {
+                    t.elapsed() >= std::time::Duration::from_millis(100)
+                });
+                let tail_due = last_system_tail.map_or(true, |t| {
+                    t.elapsed() >= std::time::Duration::from_millis(100)
+                });
+                if needs_tail && loopback_stopped && tail_due
+                    && !them_muted_flag.load(Ordering::Relaxed)
+                {
+                    if let Some(ref mut provider) = them_stt_provider {
+                        let _ = provider.feed_audio(crate::audio::AudioChunk {
+                            pcm_data: vec![0; 1600],
+                            source: AudioSource::System,
+                            timestamp_ms: 0,
+                            is_speech: false,
+                        }).await;
+                        last_system_tail = Some(std::time::Instant::now());
+                    }
+                }
+            }
             // Apply VAD from the correct per-source instance
             let vad_result = match chunk.source {
                 AudioSource::Mic | AudioSource::Room => mic_vad.process_chunk(&chunk.pcm_data),
