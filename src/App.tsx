@@ -2,6 +2,8 @@ import { useEffect, useCallback, useState } from "react";
 import { useMeetingStore } from "./stores/meetingStore";
 import { useConfigStore } from "./stores/configStore";
 import { useAIActionsStore } from "./stores/aiActionsStore";
+import { useTranscriptStore } from "./stores/transcriptStore";
+import { useStreamStore } from "./stores/streamStore";
 import { LauncherView } from "./launcher/LauncherView";
 import { OverlayView } from "./overlay/OverlayView";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
@@ -163,6 +165,10 @@ function App() {
       "nexq:meeting_started",
       (e) => {
         const { meeting, audioMode, aiScenario } = e.payload;
+        // The launcher and overlay have separate Zustand stores. Clear the
+        // overlay's prior meeting data before showing the new transcript.
+        useTranscriptStore.getState().clearSegments();
+        useStreamStore.getState().clearCurrent();
         useMeetingStore.setState({
           activeMeeting: meeting,
           currentView: "overlay",

@@ -1251,14 +1251,43 @@ pub async fn start_capture_per_party(
         // Track feed_audio errors per provider (emit once, not every chunk)
         let mut you_feed_error_emitted = false;
         let mut them_feed_error_emitted = false;
+        let mut last_system_activity: Option<std::time::Instant> = None;
 
-        while let Some(mut chunk) = rx.recv().await {
+        loop {
+            // WASAPI loopback may stop sending packets as soon as playback
+            // stops. Give live STT a bounded quiet tail so Whisper's pause
+            // timer and streaming models can finalize the last words.
+            let mut chunk = match tokio::time::timeout(
+                std::time::Duration::from_millis(100), rx.recv()
+            ).await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(_) => {
+                    let needs_tail = last_system_activity.map_or(false, |t| {
+                        t.elapsed() < std::time::Duration::from_secs(5)
+                    });
+                    if needs_tail && !them_muted_flag.load(Ordering::Relaxed) {
+                        if let Some(ref mut provider) = them_stt_provider {
+                            let _ = provider.feed_audio(crate::audio::AudioChunk {
+                                pcm_data: vec![0; 1600],
+                                source: AudioSource::System,
+                                timestamp_ms: 0,
+                                is_speech: false,
+                            }).await;
+                        }
+                    }
+                    continue;
+                }
+            };
             // Apply VAD from the correct per-source instance
             let vad_result = match chunk.source {
                 AudioSource::Mic | AudioSource::Room => mic_vad.process_chunk(&chunk.pcm_data),
                 AudioSource::System => sys_vad.process_chunk(&chunk.pcm_data),
             };
             chunk.is_speech = vad_result.is_speech;
+            if chunk.source == AudioSource::System && calculate_rms(&chunk.pcm_data) > 100.0 {
+                last_system_activity = Some(std::time::Instant::now());
+            }
 
             // Track chunk counts for diagnostics (time-based stats)
             match chunk.source {

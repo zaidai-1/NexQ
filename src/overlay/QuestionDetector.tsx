@@ -24,6 +24,7 @@ interface TrackedQuestion extends DetectedQuestion {
 export function QuestionDetector() {
   const [questions, setQuestions] = useState<TrackedQuestion[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
+  const autoAssistedRef = useRef<Set<string>>(new Set());
   const segments = useTranscriptStore((s) => s.segments);
 
   const addQuestion = useCallback((q: DetectedQuestion) => {
@@ -67,6 +68,16 @@ export function QuestionDetector() {
 
   const latest = questions.length > 0 ? questions[0] : null;
   const previousQuestions = questions.slice(1, 4);
+
+  // The Auto-Trigger setting mounts this component. Generate the suggestion
+  // when a new remote question arrives instead of waiting for a card click.
+  useEffect(() => {
+    if (!latest || latest.assisted) return;
+    const key = `${latest.timestamp_ms}:${latest.text}`;
+    if (autoAssistedRef.current.has(key)) return;
+    autoAssistedRef.current.add(key);
+    handleAssist(0);
+  }, [latest, handleAssist]);
 
   return (
     <div className="flex flex-col gap-2.5" role="region" aria-label="Detected questions">

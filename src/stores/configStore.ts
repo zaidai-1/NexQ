@@ -718,18 +718,10 @@ export const useConfigStore = create<ConfigState>((set) => ({
         console.log("[configStore] Migrated legacy audio config to meetingAudioConfig");
       }
 
-      // Migrate whisper_cpp → correct defaults (whisper_cpp is batch-only, not for live STT)
-      // Only run on first load to avoid overwriting user settings mid-meeting.
+      // Keep existing local Whisper selections. Its dual-pass provider accepts
+      // live per-party PCM and must not be silently replaced with a cloud STT.
       if (!alreadyLoaded && resolvedMeetingConfig) {
         let migrated = false;
-        if ((resolvedMeetingConfig.you.stt_provider as string) === "whisper_cpp") {
-          resolvedMeetingConfig.you = { ...resolvedMeetingConfig.you, stt_provider: "web_speech", local_model_id: undefined };
-          migrated = true;
-        }
-        if ((resolvedMeetingConfig.them.stt_provider as string) === "whisper_cpp") {
-          resolvedMeetingConfig.them = { ...resolvedMeetingConfig.them, stt_provider: "deepgram", local_model_id: undefined };
-          migrated = true;
-        }
         // windows_native only works with mic input; migrate Them (non-input) away from it
         if (
           (resolvedMeetingConfig.them.stt_provider as string) === "windows_native" &&
@@ -759,12 +751,12 @@ export const useConfigStore = create<ConfigState>((set) => ({
         }
       }
 
-      // Migrate top-level sttProvider away from whisper_cpp (first load only)
+      // Preserve an existing local Whisper choice in the legacy field too.
       let resolvedSttProvider = sttProvider;
-      if (!alreadyLoaded && (!resolvedSttProvider || (resolvedSttProvider as string) === "whisper_cpp")) {
+      if (!alreadyLoaded && !resolvedSttProvider) {
         resolvedSttProvider = "windows_native" as STTProviderType;
         await store.set("sttProvider", resolvedSttProvider);
-        console.log("[configStore] Migrated top-level sttProvider to windows_native");
+        console.log("[configStore] Initialized top-level sttProvider to windows_native");
       }
 
       // If no meetingAudioConfig was found after all migrations, create a default (first load only)

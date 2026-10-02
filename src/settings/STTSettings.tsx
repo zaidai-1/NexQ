@@ -92,12 +92,11 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   {
     value: "whisper_cpp",
     label: "Whisper.cpp",
-    description: "Batch transcription of recorded meetings",
+    description: "Local live dual-pass transcription",
     requiresApiKey: false,
     isLocal: true,
     credentialKey: "",
     requiresModels: "whisper_cpp",
-    batchOnly: true,
   },
   {
     value: "parakeet_tdt",

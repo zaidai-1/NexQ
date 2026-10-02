@@ -28,8 +28,8 @@ const CHUNK_SAMPLES: usize = (SAMPLE_RATE as usize) * 320 / 1000;
 
 /// Number of consecutive blank tokens before we consider a segment boundary.
 /// Zipformer downsamples ~4x, so each output frame ≈ 40ms.
-/// 75 blanks ≈ 3 seconds of silence before splitting segments.
-const BLANK_THRESHOLD: usize = 75;
+/// 25 blanks ≈ 1 second of silence before splitting segments.
+const BLANK_THRESHOLD: usize = 25;
 
 /// The blank token ID used by most transducer vocabularies (token 0).
 const BLANK_ID: i64 = 0;
@@ -758,7 +758,15 @@ fn inference_thread_main(
                 }
             }
             Ok(AudioMessage::Stop) => break,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            // WASAPI loopback can stop delivering packets when playback stops.
+            // Keep feeding silence while a partial segment is pending so the
+            // model can emit its final result without waiting for new speech.
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if emitted_tokens.is_empty() {
+                    continue;
+                }
+                pcm_buffer.extend(std::iter::repeat(0.0).take((SAMPLE_RATE / 10) as usize));
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
 

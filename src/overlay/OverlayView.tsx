@@ -320,7 +320,7 @@ export function OverlayView() {
           {/* Question detector — only shown when auto-trigger is on */}
           {autoTrigger && (
             <div className="shrink-0 rounded-xl border border-info/10 bg-info/5 px-4 py-3">
-              <QuestionDetector />
+              <QuestionDetector key={activeMeeting?.id} />
             </div>
           )}
 

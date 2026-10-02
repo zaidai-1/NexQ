@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import { BUILT_IN_PRESETS, type MeetingPreset, applyPreset } from "./presets";
 
-// STT provider options — whisper_cpp excluded (batch-only, not for live STT)
+// STT provider options for live per-party capture.
 const STT_OPTIONS: {
   value: STTProviderType;
   label: string;
@@ -78,6 +78,15 @@ const STT_OPTIONS: {
     requiresKey: false,
     isCloud: false,
     requiresDownload: "sherpa_onnx",
+  },
+  {
+    value: "whisper_cpp",
+    label: "Whisper.cpp (Local)",
+    shortLabel: "Whisper Turbo",
+    icon: <HardDrive className="h-3.5 w-3.5" />,
+    requiresKey: false,
+    isCloud: false,
+    requiresDownload: "whisper_cpp",
   },
   {
     value: "ort_streaming",
