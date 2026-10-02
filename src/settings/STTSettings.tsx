@@ -99,6 +99,14 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
     requiresModels: "whisper_cpp",
   },
   {
+    value: "gpu_whisper",
+    label: "GPU Whisper Large v3",
+    description: "Local GPU transcription of complete speech turns",
+    requiresApiKey: false,
+    isLocal: true,
+    credentialKey: "",
+  },
+  {
     value: "parakeet_tdt",
     label: "Parakeet TDT",
     description: "Best accuracy, offline, multilingual",
@@ -879,6 +887,7 @@ function ProviderIcon({ value, isSelected }: { value: STTProviderType; isSelecte
     case "ort_streaming":
       return <Zap className={cls} />;
     case "parakeet_tdt":
+    case "gpu_whisper":
       return <Cpu className={cls} />;
     case "deepgram":
     case "whisper_api":

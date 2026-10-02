@@ -89,6 +89,14 @@ const STT_OPTIONS: {
     requiresDownload: "whisper_cpp",
   },
   {
+    value: "gpu_whisper",
+    label: "GPU Whisper Large v3 (Local)",
+    shortLabel: "GPU Whisper",
+    icon: <Cpu className="h-3.5 w-3.5" />,
+    requiresKey: false,
+    isCloud: false,
+  },
+  {
     value: "ort_streaming",
     label: "ORT Streaming",
     shortLabel: "ORT",
@@ -147,7 +155,7 @@ const EXCLUSIVE_PROVIDERS: STTProviderType[] = ["web_speech", "windows_native"];
 
 const EXCLUSIVE_FALLBACK_ORDER: STTProviderType[] = [
   "deepgram", "groq_whisper", "whisper_api", "azure_speech",
-  "sherpa_onnx", "ort_streaming", "parakeet_tdt",
+  "gpu_whisper", "sherpa_onnx", "ort_streaming", "parakeet_tdt",
 ];
 
 const STT_LANGUAGES = [

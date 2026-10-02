@@ -3,6 +3,7 @@ pub mod fbank;
 pub mod local_engines;
 pub mod provider;
 pub mod whisper_cpp;
+pub mod gpu_whisper;
 pub mod windows_native;
 pub mod word_diff;
 // Sub-PRD 9: Additional providers
@@ -172,7 +173,7 @@ impl STTRouter {
                 log::info!("STTRouter: WebSpeech selected (frontend-only, no Rust provider)");
                 return Ok(());
             }
-            STTProviderType::WhisperCpp => {
+            STTProviderType::WhisperCpp | STTProviderType::GpuWhisper => {
                 // WhisperCpp is created per-party with a specific model path.
                 // In the legacy single-provider path, just record the type.
                 self.active_provider = None;
@@ -472,7 +473,7 @@ impl STTRouter {
                 // WebSpeech is always available in Chromium-based WebView
                 Ok(true)
             }
-            STTProviderType::WhisperCpp => {
+            STTProviderType::WhisperCpp | STTProviderType::GpuWhisper => {
                 // WhisperCpp engine is always available; model availability
                 // is checked at capture time.
                 Ok(true)

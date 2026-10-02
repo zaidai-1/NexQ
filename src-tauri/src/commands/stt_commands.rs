@@ -55,7 +55,7 @@ pub async fn set_stt_provider(app: AppHandle, provider: String) -> Result<(), St
                         router.set_groq_whisper_api_key(&key);
                     }
                 }
-                STTProviderType::WindowsNative | STTProviderType::WhisperCpp => {
+                STTProviderType::WindowsNative | STTProviderType::WhisperCpp | STTProviderType::GpuWhisper => {
                     // No API key needed for local providers
                 }
                 STTProviderType::WebSpeech => {
@@ -127,7 +127,7 @@ pub async fn test_stt_connection(app: AppHandle, provider: String) -> Result<boo
                         router.set_groq_whisper_api_key(&key);
                     }
                 }
-                STTProviderType::WindowsNative | STTProviderType::WhisperCpp => {}
+                STTProviderType::WindowsNative | STTProviderType::WhisperCpp | STTProviderType::GpuWhisper => {}
                 STTProviderType::WebSpeech => {}
                 STTProviderType::SherpaOnnx | STTProviderType::OrtStreaming | STTProviderType::ParakeetTdt => {
                     // Local providers — no API key needed

@@ -1545,6 +1545,11 @@ async fn create_stt_provider_for_party(
                 }
             }
         }
+        STTProviderType::GpuWhisper => {
+            let mut provider = crate::stt::gpu_whisper::GpuWhisperSTT::new();
+            provider.set_language(&stt_language);
+            Ok(Some(Box::new(provider)))
+        }
         STTProviderType::WindowsNative => {
             use crate::stt::windows_native::WindowsNativeSTT;
             let lang = get_stt_language(state);

@@ -315,6 +315,7 @@ export interface GroqConfig {
 
 export type STTProviderType =
   | "whisper_cpp"
+  | "gpu_whisper"
   | "deepgram"
   | "whisper_api"
   | "azure_speech"

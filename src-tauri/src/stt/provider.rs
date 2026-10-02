@@ -74,6 +74,8 @@ pub enum STTProviderType {
     WebSpeech,
     /// Local Whisper.cpp engine — runs inference on a dedicated thread.
     WhisperCpp,
+    /// Complete speech turns transcribed by a local Faster Whisper GPU worker.
+    GpuWhisper,
     /// Sherpa-ONNX sidecar process — true streaming transducer, fully offline.
     SherpaOnnx,
     /// ONNX Runtime in-process — streaming transducer loaded via ort crate.
@@ -93,6 +95,7 @@ impl STTProviderType {
             STTProviderType::GroqWhisper => "groq_whisper",
             STTProviderType::WebSpeech => "web_speech",
             STTProviderType::WhisperCpp => "whisper_cpp",
+            STTProviderType::GpuWhisper => "gpu_whisper",
             STTProviderType::SherpaOnnx => "sherpa_onnx",
             STTProviderType::OrtStreaming => "ort_streaming",
             STTProviderType::ParakeetTdt => "parakeet_tdt",
@@ -103,6 +106,7 @@ impl STTProviderType {
         match s {
             "windows_native" => Some(STTProviderType::WindowsNative),
             "whisper_cpp" => Some(STTProviderType::WhisperCpp),
+            "gpu_whisper" => Some(STTProviderType::GpuWhisper),
             "deepgram" => Some(STTProviderType::Deepgram),
             "whisper_api" => Some(STTProviderType::WhisperApi),
             "azure_speech" => Some(STTProviderType::AzureSpeech),
@@ -179,6 +183,13 @@ pub fn list_available_providers() -> Vec<STTProviderInfo> {
                 "zh-CN".to_string(),
                 "ko-KR".to_string(),
             ],
+        },
+        STTProviderInfo {
+            provider_type: "gpu_whisper".to_string(),
+            name: "GPU Whisper Large v3 (Local)".to_string(),
+            requires_api_key: false,
+            is_local: true,
+            supported_languages: vec!["en-US".to_string(), "en-GB".to_string()],
         },
         STTProviderInfo {
             provider_type: "whisper_cpp".to_string(),
