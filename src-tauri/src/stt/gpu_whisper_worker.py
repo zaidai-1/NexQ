@@ -28,6 +28,14 @@ from faster_whisper import WhisperModel  # noqa: E402
 
 model = WhisperModel("large-v3", device="cuda", compute_type="int8_float16", local_files_only=True)
 model_lock = threading.Lock()
+# Initialize CUDA kernels before the first real question. This moves the
+# one-time 2-3 second inference penalty into meeting startup.
+warm_segments, _ = model.transcribe(
+    np.zeros(16_000, dtype=np.float32),
+    language="en", beam_size=1, vad_filter=False,
+    condition_on_previous_text=False,
+)
+list(warm_segments)
 
 
 class Handler(BaseHTTPRequestHandler):
