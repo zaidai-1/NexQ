@@ -1546,7 +1546,7 @@ async fn create_stt_provider_for_party(
             }
         }
         STTProviderType::GpuWhisper => {
-            let mut provider = crate::stt::gpu_whisper::GpuWhisperSTT::new();
+            let mut provider = crate::stt::gpu_whisper::GpuWhisperSTT::new(party_role);
             provider.set_language(&stt_language);
             Ok(Some(Box::new(provider)))
         }

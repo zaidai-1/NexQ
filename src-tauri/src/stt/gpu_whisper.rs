@@ -53,34 +53,44 @@ pub struct GpuWhisperSTT {
     result_tx: Option<mpsc::Sender<TranscriptResult>>,
     buffer: Vec<i16>,
     has_speech: bool,
+    voiced_samples: usize,
     silence_samples: usize,
+    rms_threshold: f64,
+    min_voiced_samples: usize,
     sequence: u64,
     is_streaming: bool,
 }
 
 impl GpuWhisperSTT {
-    pub fn new() -> Self {
+    pub fn new(party_role: &str) -> Self {
+        let is_mic = party_role == "You";
         Self {
             language: "en-US".into(),
             client: reqwest::Client::new(),
             result_tx: None,
             buffer: Vec::new(),
             has_speech: false,
+            voiced_samples: 0,
             silence_samples: 0,
+            rms_threshold: if is_mic { 250.0 } else { 180.0 },
+            min_voiced_samples: if is_mic { SAMPLE_RATE / 2 } else { SAMPLE_RATE / 5 },
             sequence: 0,
             is_streaming: false,
         }
     }
 
     fn send_turn(&mut self) {
-        if !self.has_speech || self.buffer.len() < SAMPLE_RATE / 3 {
+        if !self.has_speech || self.voiced_samples < self.min_voiced_samples
+            || self.buffer.len() < SAMPLE_RATE / 3 {
             self.buffer.clear();
             self.has_speech = false;
+            self.voiced_samples = 0;
             self.silence_samples = 0;
             return;
         }
         let samples = std::mem::take(&mut self.buffer);
         self.has_speech = false;
+        self.voiced_samples = 0;
         self.silence_samples = 0;
         self.sequence += 1;
         let segment_id = format!("gpu_{}", self.sequence);
@@ -132,6 +142,7 @@ impl STTProvider for GpuWhisperSTT {
         self.result_tx = Some(tx);
         self.buffer.clear();
         self.has_speech = false;
+        self.voiced_samples = 0;
         self.silence_samples = 0;
         self.sequence = 0;
         self.is_streaming = true;
@@ -143,7 +154,11 @@ impl STTProvider for GpuWhisperSTT {
         if !self.is_streaming || chunk.pcm_data.is_empty() { return Ok(()); }
         let rms = (chunk.pcm_data.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
             / chunk.pcm_data.len() as f64).sqrt();
-        if rms > 180.0 { self.has_speech = true; self.silence_samples = 0; }
+        if rms > self.rms_threshold {
+            self.has_speech = true;
+            self.voiced_samples += chunk.pcm_data.len();
+            self.silence_samples = 0;
+        }
         else if self.has_speech { self.silence_samples += chunk.pcm_data.len(); }
         if self.has_speech { self.buffer.extend_from_slice(&chunk.pcm_data); }
         if self.has_speech && (self.silence_samples >= SILENCE_SAMPLES
