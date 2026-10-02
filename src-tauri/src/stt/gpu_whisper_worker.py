@@ -75,7 +75,15 @@ class Handler(BaseHTTPRequestHandler):
                     vad_filter=False,
                     condition_on_previous_text=False,
                 )
-                text = " ".join(segment.text.strip() for segment in segments).strip()
+                # Whisper can invent short phrases from fan noise and quiet
+                # microphone hiss. Keep words only when the model is confident
+                # that speech was present. Its default no-speech rule also
+                # requires log probability below -1, which missed noise on
+                # this PC (0.76 no-speech, -0.82 average log probability).
+                text = " ".join(
+                    segment.text.strip() for segment in segments
+                    if not (segment.no_speech_prob > 0.6 and segment.avg_logprob < -0.5)
+                ).strip()
             self.respond(200, {"text": text})
         except Exception as exc:
             self.respond(500, {"error": str(exc)})
