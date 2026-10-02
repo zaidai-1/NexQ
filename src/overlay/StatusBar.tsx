@@ -18,6 +18,7 @@ import { useCallback } from "react";
 const STT_SHORT_LABELS: Record<string, string> = {
   web_speech: "WebSpeech",
   whisper_cpp: "Whisper.cpp",
+  gpu_whisper: "GPU Whisper",
   windows_native: "WinSTT",
   deepgram: "Deepgram",
   whisper_api: "Whisper",

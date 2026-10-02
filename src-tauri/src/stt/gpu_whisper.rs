@@ -4,7 +4,7 @@
 use async_trait::async_trait;
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, Mutex};
 
 use crate::audio::AudioChunk;
@@ -51,7 +51,6 @@ pub struct GpuWhisperSTT {
     language: String,
     client: reqwest::Client,
     result_tx: Option<mpsc::Sender<TranscriptResult>>,
-    start_time: Option<Instant>,
     buffer: Vec<i16>,
     has_speech: bool,
     silence_samples: usize,
@@ -65,7 +64,6 @@ impl GpuWhisperSTT {
             language: "en-US".into(),
             client: reqwest::Client::new(),
             result_tx: None,
-            start_time: None,
             buffer: Vec::new(),
             has_speech: false,
             silence_samples: 0,
@@ -86,7 +84,8 @@ impl GpuWhisperSTT {
         self.silence_samples = 0;
         self.sequence += 1;
         let segment_id = format!("gpu_{}", self.sequence);
-        let timestamp_ms = self.start_time.map(|t| t.elapsed().as_millis() as u64).unwrap_or(0);
+        let timestamp_ms = SystemTime::now().duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64).unwrap_or(0);
         let client = self.client.clone();
         let tx = match self.result_tx.as_ref() { Some(tx) => tx.clone(), None => return };
         let language = self.language.clone();
@@ -131,7 +130,6 @@ impl STTProvider for GpuWhisperSTT {
         -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ensure_worker(&self.client).await?;
         self.result_tx = Some(tx);
-        self.start_time = Some(Instant::now());
         self.buffer.clear();
         self.has_speech = false;
         self.silence_samples = 0;
