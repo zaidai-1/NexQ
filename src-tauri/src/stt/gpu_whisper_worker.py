@@ -6,6 +6,7 @@ uses a locally cached Whisper Large v3 Turbo CTranslate2 model on the NVIDIA GPU
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -83,7 +84,6 @@ class Handler(BaseHTTPRequestHandler):
                     beam_size=1,
                     vad_filter=False,
                     condition_on_previous_text=False,
-                    initial_prompt="Google Ads, SEO, WordPress, GoHighLevel, Performance Max.",
                 )
                 # Whisper can invent short phrases from fan noise and quiet
                 # microphone hiss. Keep words only when the model is confident
@@ -92,10 +92,21 @@ class Handler(BaseHTTPRequestHandler):
                 # this PC. Quiet mic bursts produced false "Thank you" at
                 # 0.59 no-speech / -1.28 log probability, while spoken test
                 # questions were below 0.03 no-speech.
-                text = " ".join(
-                    segment.text.strip() for segment in segments
-                    if not (segment.no_speech_prob > 0.5 and segment.avg_logprob < -0.5)
-                ).strip()
+                accepted = []
+                for segment in segments:
+                    words = segment.text.strip()
+                    if not re.search(r"[A-Za-z0-9]", words):
+                        continue
+                    if segment.no_speech_prob > 0.5 and segment.avg_logprob < -0.5:
+                        continue
+                    # Turbo reports near-zero no-speech probability even on
+                    # quiet mic noise; low log probability catches those
+                    # hallucinations without rejecting the tested questions.
+                    if model_name == "large-v3-turbo" and segment.avg_logprob < -0.75:
+                        continue
+                    accepted.append(words)
+                text = " ".join(accepted).strip()
+                text = re.sub(r"\bgo\s*(?:hi|high)\s*level\b", "GoHighLevel", text, flags=re.IGNORECASE)
             self.respond(200, {"text": text})
         except Exception as exc:
             self.respond(500, {"error": str(exc)})
