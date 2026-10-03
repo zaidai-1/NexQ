@@ -83,6 +83,7 @@ class Handler(BaseHTTPRequestHandler):
                     beam_size=1,
                     vad_filter=False,
                     condition_on_previous_text=False,
+                    initial_prompt="Google Ads, SEO, WordPress, GoHighLevel, Performance Max.",
                 )
                 # Whisper can invent short phrases from fan noise and quiet
                 # microphone hiss. Keep words only when the model is confident
