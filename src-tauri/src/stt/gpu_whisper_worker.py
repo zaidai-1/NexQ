@@ -1,7 +1,7 @@
 """Local Faster Whisper worker for complete 16 kHz PCM speech turns.
 
 The Rust provider starts this process on demand. It binds to loopback only and
-uses the already cached Large v3 CTranslate2 model on the user's NVIDIA GPU.
+uses a locally cached Whisper Large v3 Turbo CTranslate2 model on the NVIDIA GPU.
 """
 
 import json
@@ -26,7 +26,16 @@ def enable_cuda_dlls():
 enable_cuda_dlls()
 from faster_whisper import WhisperModel  # noqa: E402
 
-model = WhisperModel("large-v3", device="cuda", compute_type="int8_float16", local_files_only=True)
+try:
+    model = WhisperModel(
+        "h2oai/faster-whisper-large-v3-turbo", device="cuda",
+        compute_type="int8_float16", local_files_only=True,
+    )
+    model_name = "large-v3-turbo"
+except (OSError, ValueError):
+    # Keep existing offline installations usable until Turbo is downloaded.
+    model = WhisperModel("large-v3", device="cuda", compute_type="int8_float16", local_files_only=True)
+    model_name = "large-v3"
 model_lock = threading.Lock()
 # Initialize CUDA kernels before the first real question. This moves the
 # one-time 2-3 second inference penalty into meeting startup.
@@ -52,7 +61,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self.respond(200, {"ready": True, "model": "large-v3"})
+            self.respond(200, {"ready": True, "model": model_name})
         else:
             self.respond(404, {"error": "not found"})
 

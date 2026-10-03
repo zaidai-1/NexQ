@@ -7,8 +7,19 @@ use crate::state::AppState;
 /// Load the selected Ollama model while meeting audio starts, before the
 /// first interviewer question needs an answer.
 #[command]
-pub async fn prewarm_ollama_model(model_id: String) -> Result<(), String> {
-    let response = reqwest::Client::new()
+pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    // The first Assist request also embeds its RAG query. Warm both Ollama
+    // models while capture starts so neither pays a cold load on a question.
+    let embedding = state.rag.as_ref().and_then(|rag| {
+        rag.lock().ok().map(|manager| (manager.embedder_url(), manager.embedding_model()))
+    });
+    let has_indexed_chunks = state.database.as_ref().and_then(|db| {
+        db.lock().ok().and_then(|manager| {
+            crate::rag::RagManager::get_status(manager.connection()).ok()
+        })
+    }).map_or(false, |status| status.total_chunks > 0);
+    let client = reqwest::Client::new();
+    let generate = client
         .post("http://127.0.0.1:11434/api/generate")
         .timeout(std::time::Duration::from_secs(30))
         .json(&serde_json::json!({
@@ -17,7 +28,26 @@ pub async fn prewarm_ollama_model(model_id: String) -> Result<(), String> {
             "stream": false,
             "keep_alive": "30m"
         }))
-        .send().await.map_err(|e| format!("Ollama warmup failed: {e}"))?;
+        .send();
+    let embed = async {
+        if !has_indexed_chunks { return; }
+        if let Some((url, model)) = embedding {
+            match client.post(format!("{}/api/embed", url.trim_end_matches('/')))
+                .timeout(std::time::Duration::from_secs(30))
+                .json(&serde_json::json!({
+                    "model": model,
+                    "input": "meeting context",
+                    "keep_alive": "30m"
+                }))
+                .send().await {
+                Ok(response) if response.status().is_success() => {},
+                Ok(response) => log::warn!("Embedding model warmup returned {}", response.status()),
+                Err(error) => log::warn!("Embedding model warmup failed: {error}"),
+            }
+        }
+    };
+    let (response, _) = tokio::join!(generate, embed);
+    let response = response.map_err(|e| format!("Ollama warmup failed: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("Ollama warmup returned {}", response.status()));
     }
