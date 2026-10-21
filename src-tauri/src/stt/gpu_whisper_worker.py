@@ -26,6 +26,15 @@ def enable_cuda_dlls():
 
 enable_cuda_dlls()
 from faster_whisper import WhisperModel  # noqa: E402
+from faster_whisper.vad import get_speech_timestamps, VadOptions  # noqa: E402
+
+# The Rust energy gate finds turn boundaries, but microphone noise can pass
+# that gate. Silero checks for speech before decoding; it does not blacklist
+# valid phrases such as "Thank you" or add a streaming endpoint delay.
+VAD_PARAMETERS = dict(
+    threshold=0.5, min_speech_duration_ms=150,
+    min_silence_duration_ms=100, speech_pad_ms=100,
+)
 
 try:
     model = WhisperModel(
@@ -46,6 +55,8 @@ warm_segments, _ = model.transcribe(
     condition_on_previous_text=False,
 )
 list(warm_segments)
+# Initialize the small CPU speech detector before reporting ready as well.
+get_speech_timestamps(np.zeros(16_000, dtype=np.float32), VadOptions(**VAD_PARAMETERS))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -62,7 +73,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self.respond(200, {"ready": True, "model": model_name})
+            self.respond(200, {"ready": True, "model": model_name,
+                               "speech_filter": "silero-vad-v1"})
         else:
             self.respond(404, {"error": "not found"})
 
@@ -82,7 +94,8 @@ class Handler(BaseHTTPRequestHandler):
                     samples,
                     language="en",
                     beam_size=1,
-                    vad_filter=False,
+                    vad_filter=True,
+                    vad_parameters=VAD_PARAMETERS,
                     condition_on_previous_text=False,
                 )
                 # Whisper can invent short phrases from fan noise and quiet
