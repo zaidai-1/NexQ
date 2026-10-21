@@ -3,23 +3,50 @@ use tauri::{command, State};
 use crate::llm::{LLMRouter, ProviderConfig};
 use crate::llm::openrouter_models;
 use crate::state::AppState;
+use crate::intelligence::action_config::AllActionConfigs;
+
+/// Match the live Assist system prefix so Ollama can reuse its prompt cache.
+fn assist_warmup_profile(configs: &AllActionConfigs) -> (String, bool) {
+    match configs.actions.get("Assist") {
+        Some(action) => {
+            let composed = super::intelligence_commands::compose_instructions(
+                &configs.instruction_presets, &configs.custom_instructions,
+            );
+            let system = if action.include_custom_instructions && !composed.is_empty() {
+                format!("{}\n\nAdditional Instructions: {}", action.system_prompt, composed)
+            } else {
+                action.system_prompt.clone()
+            };
+            (system, action.include_rag_chunks)
+        }
+        None => (String::new(), true),
+    }
+}
 
 /// Load the selected Ollama model while meeting audio starts, before the
 /// first interviewer question needs an answer.
 #[command]
 pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) -> Result<(), String> {
     crate::timing::record("warmup_started", serde_json::json!({"model": model_id}));
-    // The first Assist request also embeds its RAG query. Warm both Ollama
-    // models while capture starts so neither pays a cold load on a question.
+    let (system_prompt, needs_embeddings) = state.intelligence.as_ref()
+        .and_then(|engine| engine.lock().ok().map(|engine| assist_warmup_profile(engine.get_action_configs())))
+        .unwrap_or_else(|| (String::new(), true));
+    // Prepare the active profile and inference kernels before the first question.
+    // Embeddings are needed only when live Assist uses retrieved chunks.
     let embedding = state.rag.as_ref().and_then(|rag| {
         rag.lock().ok().map(|manager| (manager.embedder_url(), manager.embedding_model()))
     });
-    let has_indexed_chunks = state.database.as_ref().and_then(|db| {
+    let has_indexed_chunks = needs_embeddings && state.database.as_ref().and_then(|db| {
         db.lock().ok().and_then(|manager| {
             crate::rag::RagManager::get_status(manager.connection()).ok()
         })
     }).map_or(false, |status| status.total_chunks > 0);
     let client = reqwest::Client::new();
+    let mut messages = Vec::new();
+    if !system_prompt.is_empty() {
+        messages.push(serde_json::json!({"role": "system", "content": system_prompt}));
+    }
+    messages.push(serde_json::json!({"role": "user", "content": "Ready"}));
     let generate = client
         .post("http://127.0.0.1:11434/api/chat")
         .timeout(std::time::Duration::from_secs(90))
@@ -27,7 +54,7 @@ pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) 
             "model": model_id,
             // An empty generate request only loads weights. A real token also
             // initializes inference kernels before the first live question.
-            "messages": [{"role": "user", "content": "Ready"}],
+            "messages": messages,
             "options": {"num_predict": 1},
             "stream": false,
             "keep_alive": "30m"
@@ -60,6 +87,43 @@ pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) 
     response.bytes().await.map_err(|e| format!("Ollama warmup response failed: {e}"))?;
     crate::timing::record("warmup_ready", serde_json::json!({"model": model_id}));
     Ok(())
+}
+
+#[cfg(test)]
+mod assist_warmup_tests {
+    use super::*;
+
+    #[test]
+    fn assist_warmup_uses_profile_and_live_instruction_prefix() {
+        let mut configs = AllActionConfigs::default();
+        configs.instruction_presets.format = Some("bullets".into());
+        configs.custom_instructions = "Only verified facts.".into();
+        let action = configs.actions.get_mut("Assist").unwrap();
+        action.system_prompt = "Approved profile".into();
+        action.include_custom_instructions = true;
+        action.include_rag_chunks = false;
+        let (system, needs_embeddings) = assist_warmup_profile(&configs);
+        assert_eq!(system, "Approved profile\n\nAdditional Instructions: Use bullet points. Only verified facts.");
+        assert!(!needs_embeddings);
+    }
+
+    #[test]
+    fn assist_warmup_respects_disabled_custom_instructions() {
+        let mut configs = AllActionConfigs::default();
+        configs.custom_instructions = "Do not append this.".into();
+        let action = configs.actions.get_mut("Assist").unwrap();
+        action.system_prompt = "Profile only".into();
+        action.include_custom_instructions = false;
+        action.include_rag_chunks = true;
+        assert_eq!(assist_warmup_profile(&configs), ("Profile only".into(), true));
+    }
+
+    #[test]
+    fn assist_warmup_without_an_assist_action_is_generic() {
+        let mut configs = AllActionConfigs::default();
+        configs.actions.remove("Assist");
+        assert_eq!(assist_warmup_profile(&configs), (String::new(), true));
+    }
 }
 
 #[command]

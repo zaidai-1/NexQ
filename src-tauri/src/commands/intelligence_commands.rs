@@ -9,7 +9,7 @@ use crate::state::AppState;
 
 /// Compose instruction presets + custom text into a single string.
 /// Mirrors the frontend's `composeInstructions()` in aiActionsStore.ts.
-fn compose_instructions(presets: &InstructionPresets, custom: &str) -> String {
+pub(super) fn compose_instructions(presets: &InstructionPresets, custom: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(tone) = &presets.tone {
         parts.push(format!("{} tone.", tone));
