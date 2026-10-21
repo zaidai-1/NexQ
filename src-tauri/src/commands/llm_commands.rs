@@ -41,6 +41,7 @@ pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) 
                 .json(&serde_json::json!({
                     "model": model,
                     "input": "meeting context",
+                    "options": crate::rag::embedder::embedding_options(&model),
                     "keep_alive": "30m"
                 }))
                 .send().await {

@@ -29,6 +29,18 @@ struct EmbedRequest {
     model: String,
     input: Vec<String>,
     keep_alive: String,
+    options: serde_json::Value,
+}
+
+/// Keep the small Nomic encoder off the GPU used by Whisper and answer
+/// generation. On this local setup, alternating CUDA runners added seconds;
+/// warm CPU query embeddings take tens of milliseconds.
+pub fn embedding_options(model: &str) -> serde_json::Value {
+    if model.starts_with("nomic-embed-text") {
+        serde_json::json!({"num_gpu": 0})
+    } else {
+        serde_json::json!({})
+    }
 }
 
 /// A single model entry in the Ollama /api/tags response.
@@ -156,6 +168,7 @@ impl OllamaEmbedder {
                 model: model.to_string(),
                 input: safe_texts,
                 keep_alive: "30m".to_string(),
+                options: embedding_options(model),
             };
 
             let response = self
