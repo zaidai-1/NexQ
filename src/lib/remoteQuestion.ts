@@ -10,11 +10,14 @@ function startsQuestion(text: string): boolean {
 /** Assemble final remote STT segments; never split one turn into sentence questions. */
 export class RemoteQuestionAssembler {
   private parts: Segment[] = [];
+  private priorQuestion: RemoteQuestion | null = null;
+  private context = '';
 
   push(segment: Segment): RemoteQuestion | null {
     if (!segment.is_final) return null;
     if (segment.speaker !== 'Them' && segment.speaker !== 'Interviewer') {
       this.parts = [];
+      this.context = '';
       return null;
     }
     const text = segment.text.trim();
@@ -29,7 +32,12 @@ export class RemoteQuestionAssembler {
     if (!last || segment.timestamp_ms - last.timestamp_ms > 10_000
         || (startsQuestion(text) && !refersBack)) {
       this.parts = [];
+      this.context = '';
       last = undefined;
+    }
+    if (refersBack && this.parts.length === 0 && this.priorQuestion
+        && segment.timestamp_ms - this.priorQuestion.timestamp_ms <= 180_000) {
+      this.context = this.priorQuestion.text.slice(-800);
     }
     this.parts.push({ ...segment, text });
     this.parts = this.parts.slice(-4);
@@ -38,7 +46,10 @@ export class RemoteQuestionAssembler {
     // Hold obvious unfinished phrases, even when Whisper adds a question mark.
     if (/\b(you've|you have|your|the|a|and|or|to|of|about|what were your|for example)[\s?.!,]*$/i.test(text)) return null;
     if (words < 4 || !(text.endsWith('?') || (startsQuestion(joined) && words >= 6))) return null;
-    return { text: joined, timestamp_ms: segment.timestamp_ms, source: segment.speaker,
+    const question: RemoteQuestion = { text: this.context ? `${this.context} ${joined}` : joined,
+      timestamp_ms: segment.timestamp_ms, source: segment.speaker,
       confidence: 0.8, turnId: this.parts[0].id };
+    if (!this.context) this.priorQuestion = question;
+    return question;
   }
 }
