@@ -35,4 +35,9 @@ f.push(seg('How would you improve lead quality?', 1000));
 f.push(seg('I would review CRM outcomes.', 2000, 'You'));
 assert.match(f.push(seg('Why is that?', 3000)).text, /Earlier question:.*lead quality.*Current question: Why is that/s);
 assert.equal(f.push(seg('What about SEO?', 4000)).text, 'What about SEO?');
+const g = new RemoteQuestionAssembler();
+g.push(seg('Did you apply the 321 negative keywords, and what happened to CPA?', 1000));
+assert.equal(g.push(seg('Our Google Ads campaign generates leads. but most are low quality.', 9000)), null);
+assert.equal(g.push(seg('How would you fix that?', 12000)).text,
+  'Our Google Ads campaign generates leads. but most are low quality. How would you fix that?');
 console.log('Remote turn assembly regression checks passed.');

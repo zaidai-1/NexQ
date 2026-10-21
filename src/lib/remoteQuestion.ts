@@ -27,6 +27,19 @@ export class RemoteQuestionAssembler {
     let last: Segment | undefined = this.parts[this.parts.length - 1];
     if (last && segment.timestamp_ms - last.timestamp_ms <= 10_000
         && questionIdentity(last.text) === questionIdentity(text)) return null;
+    // A fresh scenario can precede a short question ("Our campaign ... How
+    // would you fix that?"). It must not inherit the previous answered topic.
+    const newScenario = !startsQuestion(text)
+      && /^(?:our|my|this|that|the|an?)\b/i.test(text)
+      && text.split(/\s+/).length >= 6
+      && !/\b(you've|you have|your|the|a|and|or|to|of|about|for example)[\s?.!,]*$/i.test(text);
+    if (newScenario && (!last || this.parts.length === this.emittedParts)) {
+      this.parts = [];
+      this.context = '';
+      this.emittedParts = 0;
+      this.priorQuestion = null;
+      last = undefined;
+    }
     // Short pronoun-based questions belong to the preceding remote context.
     const refersBack = (/\b(that|those|this|it|your findings)\b/i.test(text)
       || /^(?:so\s+)?(?:what|how)\b.*\b(first|next|find|findings|results)[?.!]*$/i.test(text))
