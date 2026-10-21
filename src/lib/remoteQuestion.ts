@@ -46,7 +46,7 @@ export class RemoteQuestionAssembler {
     // Hold obvious unfinished phrases, even when Whisper adds a question mark.
     if (/\b(you've|you have|your|the|a|and|or|to|of|about|what were your|for example)[\s?.!,]*$/i.test(text)) return null;
     if (words < 4 || !(text.endsWith('?') || (startsQuestion(joined) && words >= 6))) return null;
-    const question: RemoteQuestion = { text: this.context ? `${this.context} ${joined}` : joined,
+    const question: RemoteQuestion = { text: this.context ? `Earlier question: ${this.context}\nCurrent question: ${joined}` : joined,
       timestamp_ms: segment.timestamp_ms, source: segment.speaker,
       confidence: 0.8, turnId: this.parts[0].id };
     if (!this.context) this.priorQuestion = question;
