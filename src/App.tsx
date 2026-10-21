@@ -39,6 +39,8 @@ function App() {
   const firstRunCompleted = useConfigStore((s) => s.firstRunCompleted);
   const configLoaded = useConfigStore((s) => s._loaded);
   const loadConfig = useConfigStore((s) => s.loadConfig);
+  const llmProvider = useConfigStore((s) => s.llmProvider);
+  const llmModel = useConfigStore((s) => s.llmModel);
 
   // Wire up theme and global shortcuts
   useTheme();
@@ -122,6 +124,13 @@ function App() {
       }
     });
   }, []);
+
+  // Warm local inference while the user is still on the dashboard. Only the
+  // launcher owns startup work; the second WebView must not duplicate it.
+  useEffect(() => {
+    if (!configLoaded || windowLabel !== "launcher" || llmProvider !== "ollama" || !llmModel) return;
+    import("./lib/ipc").then(({ prewarmOllamaModel }) => prewarmOllamaModel(llmModel)).catch(() => {});
+  }, [configLoaded, windowLabel, llmProvider, llmModel]);
 
   // LAUNCHER window: when meeting starts, show overlay Tauri window and hide self
   useEffect(() => {

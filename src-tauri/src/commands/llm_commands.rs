@@ -8,6 +8,7 @@ use crate::state::AppState;
 /// first interviewer question needs an answer.
 #[command]
 pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    crate::timing::record("warmup_started", serde_json::json!({"model": model_id}));
     // The first Assist request also embeds its RAG query. Warm both Ollama
     // models while capture starts so neither pays a cold load on a question.
     let embedding = state.rag.as_ref().and_then(|rag| {
@@ -20,11 +21,14 @@ pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) 
     }).map_or(false, |status| status.total_chunks > 0);
     let client = reqwest::Client::new();
     let generate = client
-        .post("http://127.0.0.1:11434/api/generate")
-        .timeout(std::time::Duration::from_secs(30))
+        .post("http://127.0.0.1:11434/api/chat")
+        .timeout(std::time::Duration::from_secs(90))
         .json(&serde_json::json!({
             "model": model_id,
-            "prompt": "",
+            // An empty generate request only loads weights. A real token also
+            // initializes inference kernels before the first live question.
+            "messages": [{"role": "user", "content": "Ready"}],
+            "options": {"num_predict": 1},
             "stream": false,
             "keep_alive": "30m"
         }))
@@ -51,6 +55,9 @@ pub async fn prewarm_ollama_model(model_id: String, state: State<'_, AppState>) 
     if !response.status().is_success() {
         return Err(format!("Ollama warmup returned {}", response.status()));
     }
+    // Wait for the non-streamed inference body, not just response headers.
+    response.bytes().await.map_err(|e| format!("Ollama warmup response failed: {e}"))?;
+    crate::timing::record("warmup_ready", serde_json::json!({"model": model_id}));
     Ok(())
 }
 
