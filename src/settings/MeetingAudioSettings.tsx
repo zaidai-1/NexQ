@@ -90,7 +90,7 @@ const STT_OPTIONS: {
   },
   {
     value: "gpu_whisper",
-    label: "GPU Whisper Large v3 (Local)",
+    label: "Local GPU Whisper (Turbo preferred)",
     shortLabel: "GPU Whisper",
     icon: <Cpu className="h-3.5 w-3.5" />,
     requiresKey: false,

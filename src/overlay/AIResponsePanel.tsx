@@ -15,6 +15,7 @@ import { getModeLabel } from "../lib/utils";
 import type { AIResponse, StreamSource } from "../lib/types";
 import { useConfigStore } from "../stores/configStore";
 import { ColorPickerButton } from "../components/ColorPickerButton";
+import { recordAnswerRender } from "../timing";
 
 type TabId = "current" | "history-0" | "history-1" | string;
 
@@ -53,6 +54,22 @@ export function AIResponsePanel() {
   const [activeTab, setActiveTab] = useState<TabId>("current");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const renderMilestones = useRef({ text: false, sentence: false });
+
+  useEffect(() => {
+    if (!currentContent) {
+      renderMilestones.current = { text: false, sentence: false };
+      return;
+    }
+    if (!renderMilestones.current.text) {
+      renderMilestones.current.text = true;
+      recordAnswerRender("first_text");
+    }
+    if (!renderMilestones.current.sentence && /[.!?](?:\s|$)/.test(currentContent)) {
+      renderMilestones.current.sentence = true;
+      recordAnswerRender("first_sentence");
+    }
+  }, [currentContent]);
 
   // Auto-scroll during streaming
   useEffect(() => {

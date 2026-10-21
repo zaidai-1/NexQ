@@ -111,6 +111,7 @@ impl LLMProvider for OllamaClient {
     ) -> Result<CompletionStats, LLMError> {
         let url = format!("{}/api/chat", self.base_url);
         let start = Instant::now();
+        crate::timing::record("llm_begin", json!({"model": model}));
 
         let msgs: Vec<serde_json::Value> = messages
             .iter()
@@ -172,6 +173,8 @@ impl LLMProvider for OllamaClient {
         let mut token_count: u64 = 0;
         let mut prompt_tokens: u64 = 0;
         let mut completion_tokens: u64 = 0;
+        let mut spoken = String::new();
+        let mut sentence_logged = false;
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = chunk_result.map_err(|e| {
@@ -200,6 +203,16 @@ impl LLMProvider for OllamaClient {
                     // Extract token
                     if let Some(token) = NDJSONParser::extract_ollama_token(&data) {
                         if !token.is_empty() {
+                            if token_count == 0 {
+                                crate::timing::record("llm_first_token", json!({}));
+                            }
+                            spoken.push_str(&token);
+                            if !sentence_logged && spoken.as_bytes().windows(2).any(|p| {
+                                matches!(p[0], b'.' | b'?' | b'!') && p[1].is_ascii_whitespace()
+                            }) {
+                                sentence_logged = true;
+                                crate::timing::record("llm_first_sentence", json!({}));
+                            }
                             token_count += 1;
                             let _ = app_handle.emit(
                                 "llm_stream_token",
@@ -239,6 +252,7 @@ impl LLMProvider for OllamaClient {
         }
 
         let latency_ms = start.elapsed().as_millis() as u64;
+        crate::timing::record("llm_complete", json!({"generation_ms": latency_ms}));
 
         // Use Ollama's reported counts if available, otherwise use our count
         if completion_tokens == 0 {

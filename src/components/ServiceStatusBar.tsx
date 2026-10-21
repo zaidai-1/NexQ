@@ -31,7 +31,7 @@ const LLM_LABELS: Record<string, string> = {
 const STT_LABELS: Record<string, string> = {
   web_speech: "Web Speech",
   whisper_cpp: "Whisper.cpp",
-  gpu_whisper: "GPU Whisper Large v3",
+  gpu_whisper: "Local GPU Whisper",
   deepgram: "Deepgram",
   whisper_api: "Whisper API",
   azure_speech: "Azure",
@@ -56,7 +56,7 @@ const STT_PROVIDER_OPTIONS: {
   { value: "web_speech", label: "Web Speech", IconComponent: Globe, requiresKey: false, isCloud: false, inputOnly: true },
   { value: "windows_native", label: "Windows Speech", IconComponent: Monitor, requiresKey: false, isCloud: false, inputOnly: true },
   { value: "sherpa_onnx", label: "Sherpa-ONNX", IconComponent: HardDrive, requiresKey: false, isCloud: false, requiresDownload: "sherpa_onnx" },
-  { value: "gpu_whisper", label: "GPU Whisper Large v3", IconComponent: Cpu, requiresKey: false, isCloud: false },
+  { value: "gpu_whisper", label: "Local GPU Whisper", IconComponent: Cpu, requiresKey: false, isCloud: false },
   { value: "ort_streaming", label: "ORT Streaming", IconComponent: Zap, requiresKey: false, isCloud: false, requiresDownload: "ort_streaming" },
   { value: "parakeet_tdt", label: "Parakeet TDT", IconComponent: Cpu, requiresKey: false, isCloud: false, requiresDownload: "parakeet_tdt" },
   { value: "deepgram", label: "Deepgram", IconComponent: Cloud, requiresKey: true, isCloud: true },

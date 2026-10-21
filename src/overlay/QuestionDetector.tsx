@@ -4,6 +4,8 @@ import { onQuestionDetected } from "../lib/events";
 import { generateAssist } from "../lib/ipc";
 import { useTranscriptStore } from "../stores/transcriptStore";
 import type { DetectedQuestion } from "../lib/types";
+import { AutomaticQuestionGate, questionIdentity } from "../lib/questionIdentity";
+import { showToast } from "../stores/toastStore";
 
 function looksLikeQuestion(text: string): boolean {
   const trimmed = text.trim();
@@ -24,12 +26,13 @@ interface TrackedQuestion extends DetectedQuestion {
 export function QuestionDetector() {
   const [questions, setQuestions] = useState<TrackedQuestion[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
-  const autoAssistedRef = useRef<Set<string>>(new Set());
+  const autoAssistedRef = useRef(new AutomaticQuestionGate());
   const segments = useTranscriptStore((s) => s.segments);
 
   const addQuestion = useCallback((q: DetectedQuestion) => {
     setQuestions((prev) => {
-      if (prev.length > 0 && prev[0].text === q.text) return prev;
+      if (prev.some((old) => questionIdentity(old.text) === questionIdentity(q.text)
+        && Math.abs(old.timestamp_ms - q.timestamp_ms) < 10_000)) return prev;
       return [{ ...q, assisted: false }, ...prev].slice(0, 10);
     });
   }, []);
@@ -55,10 +58,14 @@ export function QuestionDetector() {
 
   const handleAssist = useCallback((index: number) => {
     const questionText = questions[index]?.text;
+    if (!questionText) return;
     setQuestions((prev) =>
       prev.map((q, i) => i === index ? { ...q, assisted: true } : q)
     );
-    generateAssist("Assist", questionText).catch(() => {});
+    generateAssist("Assist", questionText).catch((error) => {
+      setQuestions((prev) => prev.map((q) => q.text === questionText ? { ...q, assisted: false } : q));
+      showToast(error instanceof Error ? error.message : "Couldn't generate an answer. Click Assist to retry.", "error");
+    });
   }, [questions]);
 
   const handleDismiss = useCallback((index: number, e: React.MouseEvent) => {
@@ -73,9 +80,7 @@ export function QuestionDetector() {
   // when a new remote question arrives instead of waiting for a card click.
   useEffect(() => {
     if (!latest || latest.assisted) return;
-    const key = `${latest.timestamp_ms}:${latest.text}`;
-    if (autoAssistedRef.current.has(key)) return;
-    autoAssistedRef.current.add(key);
+    if (!autoAssistedRef.current.claim(latest.text, Date.now())) return;
     handleAssist(0);
   }, [latest, handleAssist]);
 

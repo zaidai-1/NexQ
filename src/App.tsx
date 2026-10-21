@@ -331,19 +331,11 @@ function App() {
   return (
     <div className={`h-screen w-screen overflow-hidden text-foreground ${resolvedView === "overlay" ? "bg-transparent" : "bg-background"}`}>
       <ErrorBoundary fallbackMessage="NexQ encountered an error">
-        {resolvedView === "launcher" && (
+        {/* Only the overlay window owns live question dispatch. The launcher
+            keeps persistence/audio hooks and shows its dashboard when restored. */}
+        {(resolvedView === "launcher" || resolvedView === "overlay") && (
           <ErrorBoundary fallbackMessage="Failed to load launcher">
             <LauncherView />
-          </ErrorBoundary>
-        )}
-        {resolvedView === "overlay" && (
-          <ErrorBoundary fallbackMessage="Failed to load overlay">
-            <div className="flex h-full">
-              <div className="flex-1 min-w-0 overflow-hidden">
-                <OverlayView />
-              </div>
-              <CallLogPanel />
-            </div>
           </ErrorBoundary>
         )}
         {resolvedView === "wizard" && (

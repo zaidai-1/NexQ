@@ -59,6 +59,8 @@ pub struct GpuWhisperSTT {
     min_voiced_samples: usize,
     sequence: u64,
     is_streaming: bool,
+    party_role: String,
+    last_speech_ms: u64,
 }
 
 impl GpuWhisperSTT {
@@ -76,6 +78,8 @@ impl GpuWhisperSTT {
             min_voiced_samples: if is_mic { SAMPLE_RATE / 2 } else { SAMPLE_RATE / 5 },
             sequence: 0,
             is_streaming: false,
+            party_role: party_role.to_string(),
+            last_speech_ms: 0,
         }
     }
 
@@ -99,6 +103,12 @@ impl GpuWhisperSTT {
         let client = self.client.clone();
         let tx = match self.result_tx.as_ref() { Some(tx) => tx.clone(), None => return };
         let language = self.language.clone();
+        let party = self.party_role.clone();
+        let speech_end_ms = self.last_speech_ms;
+        crate::timing::record("stt_submit", serde_json::json!({
+            "party": party, "turn": segment_id, "speech_end_ms": speech_end_ms,
+            "samples": samples.len()
+        }));
         tokio::spawn(async move {
             let mut body = Vec::with_capacity(samples.len() * 2);
             for sample in samples { body.extend_from_slice(&sample.to_le_bytes()); }
@@ -109,6 +119,9 @@ impl GpuWhisperSTT {
                     match resp.json::<serde_json::Value>().await {
                         Ok(json) => {
                             let text = json["text"].as_str().unwrap_or("").trim();
+                            crate::timing::record("stt_final", serde_json::json!({
+                                "party": party, "turn": segment_id, "nonempty": !text.is_empty()
+                            }));
                             if !text.is_empty() {
                                 let _ = tx.send(TranscriptResult {
                                     text: text.to_string(),
@@ -155,6 +168,7 @@ impl STTProvider for GpuWhisperSTT {
         let rms = (chunk.pcm_data.iter().map(|&s| (s as f64).powi(2)).sum::<f64>()
             / chunk.pcm_data.len() as f64).sqrt();
         if rms > self.rms_threshold {
+            self.last_speech_ms = crate::timing::now_ms();
             self.has_speech = true;
             self.voiced_samples += chunk.pcm_data.len();
             self.silence_samples = 0;

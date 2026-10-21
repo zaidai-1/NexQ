@@ -11,6 +11,7 @@ pub mod state;
 pub mod stt;
 pub mod translation;
 pub mod tray;
+pub mod timing;
 
 use state::AppState;
 use std::sync::{Arc, Mutex};
@@ -535,6 +536,7 @@ pub fn run() {
             llm_commands::list_openrouter_models,
             // == COMMANDS: intelligence ==
             intelligence_commands::generate_assist,
+            timing::record_answer_render,
             intelligence_commands::cancel_generation,
             intelligence_commands::set_auto_trigger,
             intelligence_commands::set_context_window_seconds,

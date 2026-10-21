@@ -116,6 +116,7 @@ pub async fn generate_assist(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    crate::timing::record("assist_received", serde_json::json!({"mode": mode}));
     // Extract what we need from the intelligence engine under its lock
     let (last_question, cancel_flag, action_config_snapshot, composed_instructions) = {
         let intel = state
@@ -406,6 +407,7 @@ pub async fn generate_assist(
         parts.join("\n\n")
     };
 
+    crate::timing::record("context_ready", serde_json::json!({"mode": mode, "chunks": rag_chunk_infos.len()}));
     let include_context = !context_text.is_empty();
 
     // Get the LLM provider and model info

@@ -100,8 +100,8 @@ const PROVIDER_OPTIONS: ProviderOption[] = [
   },
   {
     value: "gpu_whisper",
-    label: "GPU Whisper Large v3",
-    description: "Local GPU transcription of complete speech turns",
+    label: "Local GPU Whisper",
+    description: "Uses cached Large v3 Turbo, with Large v3 as an offline fallback",
     requiresApiKey: false,
     isLocal: true,
     credentialKey: "",

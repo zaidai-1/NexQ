@@ -28,6 +28,7 @@ struct EmbedResponse {
 struct EmbedRequest {
     model: String,
     input: Vec<String>,
+    keep_alive: String,
 }
 
 /// A single model entry in the Ollama /api/tags response.
@@ -154,6 +155,7 @@ impl OllamaEmbedder {
             let request_body = EmbedRequest {
                 model: model.to_string(),
                 input: safe_texts,
+                keep_alive: "30m".to_string(),
             };
 
             let response = self
