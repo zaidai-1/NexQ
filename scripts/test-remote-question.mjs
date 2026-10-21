@@ -22,7 +22,12 @@ assert.match(c.push(seg('What would you investigate first?', 2000)).text, /conve
 const d = new RemoteQuestionAssembler();
 d.push(seg('How would you structure ads for a local service business?', 1000));
 d.push(seg('I would prioritize service-area coverage.', 2000, 'You'));
-assert.match(d.push(seg('So how would that help the business?', 45000)).text, /local service business.*help the business/);
+assert.match(d.push(seg('So how would that help the business?', 45000)).text, /local service business.*Current question:.*help the business/s);
 d.push(seg('That gives us useful enquiries.', 46000, 'You'));
 assert.equal(d.push(seg('Tell me about your WordPress experience.', 48000)).text, 'Tell me about your WordPress experience.');
+const e = new RemoteQuestionAssembler();
+e.push(seg('Could you briefly tell me about your ad?', 1000));
+assert.equal(e.push(seg("budget that you've", 2000)), null);
+assert.equal(e.push(seg('managed and what were your', 3000)), null);
+assert.match(e.push(seg('results? Did you overspend?', 4000)).text, /Earlier question:.*your ad\?\nCurrent question: budget that you've managed.*results/s);
 console.log('Remote turn assembly regression checks passed.');

@@ -12,12 +12,14 @@ export class RemoteQuestionAssembler {
   private parts: Segment[] = [];
   private priorQuestion: RemoteQuestion | null = null;
   private context = '';
+  private emittedParts = 0;
 
   push(segment: Segment): RemoteQuestion | null {
     if (!segment.is_final) return null;
     if (segment.speaker !== 'Them' && segment.speaker !== 'Interviewer') {
       this.parts = [];
       this.context = '';
+      this.emittedParts = 0;
       return null;
     }
     const text = segment.text.trim();
@@ -27,13 +29,21 @@ export class RemoteQuestionAssembler {
         && questionIdentity(last.text) === questionIdentity(text)) return null;
     // Short pronoun-based questions belong to the preceding remote context.
     const refersBack = (/\b(that|those|this|it|your findings)\b/i.test(text)
-      || /^(?:so\s+)?(?:what|how)\b.*\b(first|next|findings|results)[?.!]*$/i.test(text))
+      || /^(?:so\s+)?(?:what|how)\b.*\b(first|next|find|findings|results)[?.!]*$/i.test(text))
       && text.split(/\s+/).length <= 12;
     if (!last || segment.timestamp_ms - last.timestamp_ms > 10_000
         || (startsQuestion(text) && !refersBack)) {
       this.parts = [];
       this.context = '';
+      this.emittedParts = 0;
       last = undefined;
+    }
+    // If the speaker continues a just-emitted question, keep the previous
+    // wording as context and let the newly completed phrase take priority.
+    if (this.parts.length > 0 && this.parts.length === this.emittedParts) {
+      this.context = this.parts.map(p => p.text).join(' ').slice(-800);
+      this.parts = [];
+      this.emittedParts = 0;
     }
     if (refersBack && this.parts.length === 0 && this.priorQuestion
         && segment.timestamp_ms - this.priorQuestion.timestamp_ms <= 180_000) {
@@ -50,6 +60,7 @@ export class RemoteQuestionAssembler {
       timestamp_ms: segment.timestamp_ms, source: segment.speaker,
       confidence: 0.8, turnId: this.parts[0].id };
     if (!this.context) this.priorQuestion = question;
+    this.emittedParts = this.parts.length;
     return question;
   }
 }
