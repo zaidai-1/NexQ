@@ -1,28 +1,30 @@
 use tauri::{command, AppHandle, Manager};
 
-/// Enable or disable stealth mode on the overlay window.
+/// Apply capture exclusion to both the overlay and the launcher/history window.
 ///
 /// When enabled, the overlay window is excluded from screen captures and recordings
 /// using the Windows API `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`.
 ///
-/// This prevents the overlay from appearing in screenshots, screen recordings, or
-/// screen-sharing sessions (e.g., Zoom, Teams, Discord).
+/// Capture applications must honor Windows display affinity; this cannot
+/// guarantee exclusion from every recording or screen-sharing implementation.
 #[command]
 pub async fn set_stealth_mode(app: AppHandle, enabled: bool) -> Result<(), String> {
-    let _overlay = app
-        .get_webview_window("overlay")
-        .ok_or_else(|| "Overlay window not found".to_string())?;
+    protect_windows(&app, enabled)
+}
 
+pub fn protect_windows(app: &AppHandle, enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY,
+            GetWindowDisplayAffinity, SetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY,
         };
 
-        // Obtain the HWND from the overlay window.
+        for label in ["overlay", "launcher"] {
+        let window = app.get_webview_window(label)
+            .ok_or_else(|| format!("{label} window not found"))?;
         // In Tauri 2, hwnd() is a direct method on WebviewWindow.
-        let hwnd_raw = _overlay
+        let hwnd_raw = window
             .hwnd()
             .map_err(|e| format!("Failed to get window handle: {}", e))?;
 
@@ -38,7 +40,14 @@ pub async fn set_stealth_mode(app: AppHandle, enabled: bool) -> Result<(), Strin
 
         unsafe {
             SetWindowDisplayAffinity(hwnd, affinity)
-                .map_err(|e| format!("Failed to set display affinity: {}", e))?;
+                .map_err(|e| format!("Failed to protect {label} from capture: {e}"))?;
+            let mut actual = 0u32;
+            GetWindowDisplayAffinity(hwnd, &mut actual)
+                .map_err(|e| format!("Failed to verify capture protection for {label}: {e}"))?;
+            if actual != affinity.0 {
+                return Err(format!("Capture protection was not applied to {label}"));
+            }
+        }
         }
 
         log::info!(

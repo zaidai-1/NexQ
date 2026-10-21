@@ -254,19 +254,20 @@ function App() {
       const store = useMeetingStore.getState();
       const willHide = !store.overlayHidden;
       store.toggleOverlayHidden();
-      // Hide/show overlay window and toggle capture stealth
+      // Visibility and capture exclusion are independent. Showing the overlay
+      // must never remove its capture protection.
       import("@tauri-apps/api/webviewWindow").then(async ({ WebviewWindow }) => {
         const overlay = await WebviewWindow.getByLabel("overlay");
         if (overlay) {
           if (willHide) {
             await overlay.hide().catch(() => {});
           } else {
-            await overlay.show().catch(() => {});
+            await showOverlayWindow();
           }
         }
       }).catch(() => {});
       import("./lib/ipc").then(({ setStealthMode }) => {
-        setStealthMode(willHide).catch((e: unknown) =>
+        setStealthMode(true).catch((e: unknown) =>
           console.warn("[App] Failed to set stealth mode:", e)
         );
       }).catch(() => {});

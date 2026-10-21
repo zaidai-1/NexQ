@@ -172,6 +172,9 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            commands::stealth_commands::protect_windows(app.handle(), true)
+                .map_err(std::io::Error::other)?;
             let mut app_state = AppState::new();
 
             // -- Initialize DatabaseManager --

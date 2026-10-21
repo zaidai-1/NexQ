@@ -1,56 +1,40 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { HelpCircle, Sparkles, Check, Clock, X } from "lucide-react";
-import { onQuestionDetected } from "../lib/events";
 import { generateAssist } from "../lib/ipc";
 import { useTranscriptStore } from "../stores/transcriptStore";
 import type { DetectedQuestion } from "../lib/types";
 import { AutomaticQuestionGate, questionIdentity } from "../lib/questionIdentity";
 import { showToast } from "../stores/toastStore";
-
-function looksLikeQuestion(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.endsWith("?")) return true;
-  const lower = trimmed.toLowerCase();
-  const qWords = [
-    "what ", "how ", "why ", "when ", "where ", "who ", "which ",
-    "can you", "could you", "would you", "do you", "are you",
-    "is there", "have you", "tell me", "explain",
-  ];
-  return qWords.some((w) => lower.startsWith(w));
-}
+import { RemoteQuestionAssembler } from "../lib/remoteQuestion";
 
 interface TrackedQuestion extends DetectedQuestion {
   assisted: boolean;
+  turnId?: string;
 }
 
 export function QuestionDetector() {
   const [questions, setQuestions] = useState<TrackedQuestion[]>([]);
   const processedIdsRef = useRef<Set<string>>(new Set());
   const autoAssistedRef = useRef(new AutomaticQuestionGate());
+  const assemblerRef = useRef(new RemoteQuestionAssembler());
   const segments = useTranscriptStore((s) => s.segments);
 
-  const addQuestion = useCallback((q: DetectedQuestion) => {
+  const addQuestion = useCallback((q: DetectedQuestion & { turnId?: string }) => {
     setQuestions((prev) => {
       if (prev.some((old) => questionIdentity(old.text) === questionIdentity(q.text)
         && Math.abs(old.timestamp_ms - q.timestamp_ms) < 10_000)) return prev;
-      return [{ ...q, assisted: false }, ...prev].slice(0, 10);
+      return [{ ...q, assisted: false }, ...prev.filter(old => !q.turnId || old.turnId !== q.turnId)].slice(0, 10);
     });
   }, []);
 
-  useEffect(() => {
-    const p = onQuestionDetected((event) => {
-      if (event.source === "Them" || event.source === "Interviewer") {
-        addQuestion(event);
-      }
-    });
-    return () => { p.then((u) => u()); };
-  }, [addQuestion]);
-
+  // Final transcript segments are the single automatic question source.
+  // Backend sentence detections otherwise re-submit suffixes of the same turn.
   useEffect(() => {
     for (const seg of segments) {
-      if (seg.is_final && !processedIdsRef.current.has(seg.id) && (seg.speaker === "Them" || seg.speaker === "Interviewer") && looksLikeQuestion(seg.text)) {
+      if (seg.is_final && !processedIdsRef.current.has(seg.id)) {
         processedIdsRef.current.add(seg.id);
-        addQuestion({ text: seg.text, confidence: 0.8, timestamp_ms: seg.timestamp_ms, source: seg.speaker });
+        const question = assemblerRef.current.push(seg);
+        if (question) addQuestion(question);
       }
       if (seg.is_final) processedIdsRef.current.add(seg.id);
     }
