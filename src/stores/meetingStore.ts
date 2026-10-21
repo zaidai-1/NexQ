@@ -177,9 +177,13 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
       // 2. Sync recording toggle to backend before capture starts
       const config = useConfigStore.getState();
-      if (config.llmProvider === "ollama" && config.llmModel) {
-        void prewarmOllamaModel(config.llmModel).catch(() => {});
-      }
+      const localWarmup = config.llmProvider === "ollama" && config.llmModel
+        ? prewarmOllamaModel(config.llmModel).catch(async (error) => {
+            console.warn("[meetingStore] Local AI warmup failed:", error);
+            const { showToast } = await import("./toastStore");
+            showToast("Local AI could not finish preparing. Check Ollama before relying on live answers.", "error");
+          })
+        : Promise.resolve();
       try {
         const { setRecordingEnabled } = await import("../lib/ipc");
         await setRecordingEnabled(config.recordingEnabled);
@@ -212,6 +216,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
         console.warn("[meetingStore] Audio capture failed to start:", err);
         // Continue anyway — meeting is created, user can still use AI features
       }
+
+      // Capture/STT and LLM warm up concurrently. Keep the setup spinner until
+      // both are ready, so a cold model load does not delay the first answer.
+      await localWarmup;
 
       // 3. Clear previous transcript segments and leftover AI state
       useTranscriptStore.getState().clearSegments();
