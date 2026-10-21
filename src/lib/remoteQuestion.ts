@@ -59,7 +59,7 @@ export class RemoteQuestionAssembler {
     const question: RemoteQuestion = { text: this.context ? `Earlier question: ${this.context}\nCurrent question: ${joined}` : joined,
       timestamp_ms: segment.timestamp_ms, source: segment.speaker,
       confidence: 0.8, turnId: this.parts[0].id };
-    if (!this.context) this.priorQuestion = question;
+    this.priorQuestion = { ...question, text: joined };
     this.emittedParts = this.parts.length;
     return question;
   }
