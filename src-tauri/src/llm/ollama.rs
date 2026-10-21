@@ -16,10 +16,22 @@ pub struct OllamaClient {
     client: reqwest::Client,
 }
 
+/// Windows can spend hundreds of milliseconds falling back from localhost's
+/// IPv6 address when Ollama listens only on IPv4. Preserve explicit remote
+/// hosts and HTTPS endpoints; normalize the local HTTP authority only.
+pub(crate) fn normalize_ollama_url(base_url: &str) -> String {
+    let base_url = base_url.trim_end_matches('/');
+    if let Some(rest) = base_url.strip_prefix("http://localhost:") {
+        format!("http://127.0.0.1:{rest}")
+    } else {
+        base_url.to_string()
+    }
+}
+
 impl OllamaClient {
     pub fn new(base_url: Option<&str>) -> Self {
         Self {
-            base_url: base_url.unwrap_or("http://localhost:11434").to_string(),
+            base_url: normalize_ollama_url(base_url.unwrap_or("http://127.0.0.1:11434")),
             client: reqwest::Client::new(),
         }
     }

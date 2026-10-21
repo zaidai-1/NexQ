@@ -264,7 +264,7 @@ For 60 chunks at batch=32: ~2 Ollama calls vs ~8 calls at batch=8.`,
 const DEFAULT_RAG_CONFIG: RagConfig = {
   enabled: true,
   embedding_model: "nomic-embed-text",
-  ollama_url: "http://localhost:11434",
+  ollama_url: "http://127.0.0.1:11434",
   batch_size: 32,
   chunk_size: 512,
   chunk_overlap: 64,
@@ -964,7 +964,7 @@ export function ContextStrategySettings() {
                     value={localConfig.ollama_url}
                     onChange={(e) => updateField("ollama_url", e.target.value)}
                     onBlur={handleFieldBlur}
-                    placeholder="http://localhost:11434"
+                    placeholder="http://127.0.0.1:11434"
                     className="w-full rounded-lg border border-border/50 bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/20"
                   />
                 </div>

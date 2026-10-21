@@ -36,7 +36,7 @@ impl Default for RagConfig {
         Self {
             enabled: false,
             embedding_model: "nomic-embed-text".to_string(),
-            ollama_url: "http://localhost:11434".to_string(),
+            ollama_url: "http://127.0.0.1:11434".to_string(),
             batch_size: 32,
             chunk_size: 512,
             chunk_overlap: 64,

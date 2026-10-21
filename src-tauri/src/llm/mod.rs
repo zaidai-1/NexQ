@@ -73,7 +73,7 @@ impl ProviderType {
 
     pub fn default_base_url(&self) -> &str {
         match self {
-            Self::Ollama => "http://localhost:11434",
+            Self::Ollama => "http://127.0.0.1:11434",
             Self::LmStudio => "http://localhost:1234/v1",
             Self::Openai => "https://api.openai.com/v1",
             Self::Anthropic => "https://api.anthropic.com",

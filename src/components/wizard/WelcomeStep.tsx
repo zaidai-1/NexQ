@@ -72,7 +72,7 @@ export function WelcomeStep({ onDetectionComplete }: WelcomeStepProps) {
       // Phase 2: Check Ollama
       setPhase("ollama");
       try {
-        const resp = await fetch("http://localhost:11434/api/tags", {
+        const resp = await fetch("http://127.0.0.1:11434/api/tags", {
           signal: AbortSignal.timeout(3000),
         });
         if (resp.ok) {

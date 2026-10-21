@@ -130,7 +130,7 @@ impl OllamaEmbedder {
     pub fn new(base_url: &str) -> Self {
         Self {
             client: Client::new(),
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url: crate::llm::ollama::normalize_ollama_url(base_url),
         }
     }
 
