@@ -12,6 +12,11 @@ import {
 } from "../lib/ipc";
 import { useConfigStore } from "./configStore";
 import { useTranscriptStore } from "./transcriptStore";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emitTo, listen } from "@tauri-apps/api/event";
+
+// Each WebView has its own state; serialize repeated end requests locally.
+let endingMeetingFlow: Promise<void> | null = null;
 
 interface MeetingState {
   // View state
@@ -284,8 +289,40 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   },
 
   endMeetingFlow: async () => {
+    if (endingMeetingFlow) return endingMeetingFlow;
+    endingMeetingFlow = (async () => {
     const state = get();
     const meeting = state.activeMeeting;
+
+    // The overlay owns completed answer entries. Launcher conflict-resolution
+    // and tray paths must wait for that owner to save before starting anew.
+    if (meeting && getCurrentWebviewWindow().label === "launcher") {
+      await new Promise<void>((resolve, reject) => {
+        let unlisten: (() => void) | undefined;
+        const timeout = setTimeout(() => {
+          unlisten?.();
+          reject(new Error("The live meeting did not finish saving. End it from the meeting toolbar before starting another."));
+        }, 15_000);
+        listen<{ meetingId?: string }>("nexq:meeting_ended", ({ payload }) => {
+          if (payload.meetingId !== meeting.id) return;
+          clearTimeout(timeout);
+          unlisten?.();
+          resolve();
+        }).then(async (stop) => {
+          unlisten = stop;
+          try { await emitTo("overlay", "nexq:meeting_shortcut", "end-meeting"); }
+          catch (error) {
+            clearTimeout(timeout);
+            stop();
+            reject(error);
+          }
+        }).catch((error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+      return;
+    }
 
     // 1. Stop timer
     state.stopTimer();
@@ -490,8 +527,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
     // Notify overlay Tauri window that meeting ended
     import("@tauri-apps/api/event").then(({ emit }) => {
-      emit("nexq:meeting_ended", {}).catch(() => {});
+      emit("nexq:meeting_ended", { meetingId: meeting?.id }).catch(() => {});
     });
+    })().finally(() => { endingMeetingFlow = null; });
+    return endingMeetingFlow;
   },
 
   loadRecentMeetings: async () => {

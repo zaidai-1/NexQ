@@ -4,6 +4,7 @@ import { useConfigStore } from "./stores/configStore";
 import { useAIActionsStore } from "./stores/aiActionsStore";
 import { useTranscriptStore } from "./stores/transcriptStore";
 import { useStreamStore } from "./stores/streamStore";
+import { useCallLogStore } from "./stores/callLogStore";
 import { LauncherView } from "./launcher/LauncherView";
 import { OverlayView } from "./overlay/OverlayView";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
@@ -178,6 +179,8 @@ function App() {
         // overlay's prior meeting data before showing the new transcript.
         useTranscriptStore.getState().clearSegments();
         useStreamStore.getState().clearCurrent();
+        useCallLogStore.getState().clearAll();
+        useCallLogStore.getState().setOpen(false);
         useMeetingStore.setState({
           activeMeeting: meeting,
           currentView: "overlay",
@@ -221,7 +224,9 @@ function App() {
     const unlisteners: Array<() => void> = [];
 
     listen("tray_start_meeting", () => {
-      startMeetingFlow().catch((err) => {
+      if (windowLabel !== "launcher") return;
+      const setup = useConfigStore.getState().rememberedMeetingSetup;
+      startMeetingFlow(undefined, setup?.audioMode, setup?.scenario).catch((err) => {
         console.error("[App] Tray start meeting failed:", err);
       });
     }).then((unlisten) => unlisteners.push(unlisten));
@@ -237,6 +242,7 @@ function App() {
     }).then((unlisten) => unlisteners.push(unlisten));
 
     listen("tray_stop_meeting", () => {
+      if (windowLabel !== "overlay") return;
       useMeetingStore.getState().endMeetingFlow().catch((err) => {
         console.error("[App] Tray stop meeting failed:", err);
       });
@@ -289,7 +295,7 @@ function App() {
       unlisteners.forEach((fn) => fn());
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startMeetingFlow]);
+  }, [startMeetingFlow, windowLabel]);
 
   // Don't render until config is loaded from disk — prevents false wizard trigger
   if (!configLoaded) {

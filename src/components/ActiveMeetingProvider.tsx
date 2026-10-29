@@ -3,8 +3,8 @@
 // This ensures transcription, timers, and persistence continue
 // in the background regardless of which page is displayed.
 //
-// Two-window architecture: launcher window handles persistence/audio control;
-// overlay window subscribes to events for display only.
+// Two-window architecture: launcher handles transcript persistence/audio;
+// overlay owns response capture and end-of-meeting answer persistence.
 
 import { useMeetingStore } from "../stores/meetingStore";
 import { useMeetingTimer } from "../hooks/useMeetingTimer";
@@ -22,17 +22,18 @@ export function ActiveMeetingProvider({ isLauncherWindow = true }: { isLauncherW
 
   if (!activeMeeting) return null;
 
-  // Overlay window: subscribe to events for display (no persistence, no audio control)
+  // Overlay window: display and response history (no audio control)
   if (!isLauncherWindow) return <OverlayMeetingHooks />;
 
   return <LauncherMeetingHooks />;
 }
 
-// Overlay window: display-only hooks — populate local Zustand stores from Tauri events
+// Overlay window: live display and answer log from Tauri events
 function OverlayMeetingHooks() {
   useMeetingTimer();
   useTranscript();    // transcript_final/update → local store
   useStreamBuffer();  // AI streaming events → local store
+  useCallLogCapture(); // completed answers → local log + SQLite
   useSTTStatus();     // STT connection status
   useDevLog();        // debug log entries
   return null;
@@ -46,7 +47,6 @@ function LauncherMeetingHooks() {
   useAudioConfigSync();    // hot-swap STT/audio config
   useTranscriptPersistence(); // transcript store → SQLite DB
   useStreamBuffer();
-  useCallLogCapture();
   useSTTStatus();
   useDevLog();
   return null;
