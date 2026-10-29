@@ -40,4 +40,28 @@ g.push(seg('Did you apply the 321 negative keywords, and what happened to CPA?',
 assert.equal(g.push(seg('Our Google Ads campaign generates leads. but most are low quality.', 9000)), null);
 assert.equal(g.push(seg('How would you fix that?', 12000)).text,
   'Our Google Ads campaign generates leads. but most are low quality. How would you fix that?');
+const h = new RemoteQuestionAssembler();
+assert.equal(h.push(seg('A booked customer gets the wrong reminder in GoHighLevel.', 1000)), null);
+assert.equal(h.push(seg('How would you investigate?', 2000)).text,
+  'A booked customer gets the wrong reminder in GoHighLevel. How would you investigate?');
+assert.equal(h.push(seg('Tell me about your SEO experience.', 3000)).text,
+  'Tell me about your SEO experience.');
+for (const diagnostic of ['What would you check?', 'How would you diagnose?', 'How would you test?']) {
+  const pending = new RemoteQuestionAssembler();
+  pending.push(seg('A booked customer gets the wrong reminder in GoHighLevel.', 1000));
+  assert.equal(pending.push(seg(diagnostic, 2000)).text,
+    `A booked customer gets the wrong reminder in GoHighLevel. ${diagnostic}`);
+}
+const i = new RemoteQuestionAssembler();
+i.push(seg('Did you apply the 321 negative keywords, and what happened to CPA?', 1000));
+i.push(seg('A booked customer gets the wrong reminder in GoHighLevel.', 2000));
+assert.equal(i.push(seg('How would you investigate?', 3000)).text,
+  'A booked customer gets the wrong reminder in GoHighLevel. How would you investigate?');
+// An explicit new topic must still replace an unsubmitted scenario.
+const j = new RemoteQuestionAssembler();
+j.push(seg('A booked customer gets the wrong reminder in GoHighLevel.', 1000));
+assert.equal(j.push(seg('What did you do for CHC Concrete?', 2000)).text,
+  'What did you do for CHC Concrete?');
+// A generic diagnostic prompt alone must not inherit an answered topic.
+assert.equal(j.push(seg('How would you investigate?', 3000)).text, 'How would you investigate?');
 console.log('Remote turn assembly regression checks passed.');

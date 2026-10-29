@@ -44,8 +44,16 @@ export class RemoteQuestionAssembler {
     const refersBack = (/\b(that|those|this|it|your findings)\b/i.test(text)
       || /^(?:so\s+)?(?:what|how)\b.*\b(first|next|find|findings|results)[?.!]*$/i.test(text))
       && text.split(/\s+/).length <= 12;
+    // A scenario can finish with a diagnostic question that has no pronoun:
+    // "A customer gets the wrong reminder. How would you investigate?".
+    // Preserve only an unsubmitted nearby scenario; an already emitted topic
+    // must not be pulled into a new, otherwise context-free question.
+    const completesPendingScenario = !!last && this.emittedParts === 0
+      && segment.timestamp_ms - last.timestamp_ms <= 10_000
+      && this.parts.some(p => !startsQuestion(p.text))
+      && /^(?:(?:okay|alright|all right|so|and)[,\s]+)*(?:how|what)\s+(?:would|will|do|can|could|should)\s+you\s+(?:investigate|check|diagnose|test)(?:\s+(?:first|next))?[?.!]*$/i.test(text);
     if (!last || segment.timestamp_ms - last.timestamp_ms > 10_000
-        || (startsQuestion(text) && !refersBack)) {
+        || (startsQuestion(text) && !refersBack && !completesPendingScenario)) {
       this.parts = [];
       this.context = '';
       this.emittedParts = 0;
