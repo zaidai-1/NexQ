@@ -22,6 +22,7 @@ jobs:
       - run: npm ci
       - run: node scripts/test-question-identity.mjs
       - run: node scripts/test-remote-question.mjs
+      - run: node scripts/test-meeting-shortcut.mjs
       - run: npm run tauri build -- --no-bundle
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib assist_warmup
       - uses: actions/upload-artifact@v4

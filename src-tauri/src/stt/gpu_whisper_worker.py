@@ -90,12 +90,18 @@ class Handler(BaseHTTPRequestHandler):
         samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
         try:
             with model_lock:
+                # Gate noise with VAD, but decode the original turn. Trimming
+                # to VAD spans can remove quiet question prefixes/names in
+                # telephone-band audio (e.g. "What did you do for CHC...").
+                speech_spans = get_speech_timestamps(samples, VadOptions(**VAD_PARAMETERS))
+                if not speech_spans:
+                    self.respond(200, {"text": ""})
+                    return
                 segments, _ = model.transcribe(
                     samples,
                     language="en",
                     beam_size=1,
-                    vad_filter=True,
-                    vad_parameters=VAD_PARAMETERS,
+                    vad_filter=False,
                     condition_on_previous_text=False,
                 )
                 # Whisper can invent short phrases from fan noise and quiet
@@ -120,6 +126,9 @@ class Handler(BaseHTTPRequestHandler):
                     accepted.append(words)
                 text = " ".join(accepted).strip()
                 text = re.sub(r"\bgo\s*(?:hi|high)\s*level\b", "GoHighLevel", text, flags=re.IGNORECASE)
+                # Narrow marketing collocation; do not rewrite ordinary feet
+                # measurements or infer a missing question from a fragment.
+                text = re.sub(r"\bfeet(?=\s+offers?\b)", "feed", text, flags=re.IGNORECASE)
             self.respond(200, {"text": text})
         except Exception as exc:
             self.respond(500, {"error": str(exc)})

@@ -7,26 +7,51 @@ import { useMeetingStore } from "../stores/meetingStore";
 import { useAIActionsStore } from "../stores/aiActionsStore";
 import { generateAssist } from "../lib/ipc";
 import { showLauncherWindow, showOverlayWindow } from "../lib/windows";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emitTo, listen } from "@tauri-apps/api/event";
+import { useConfigStore } from "../stores/configStore";
+import { dispatchMeetingShortcut } from "../lib/meetingShortcut";
+import type { GlobalMeetingShortcut, OverlayMeetingShortcut } from "../lib/meetingShortcut";
+
+// Serialize effect setup/cleanup so React Strict Mode cannot unregister a
+// newer lease after its registration has already completed.
+let shortcutLease = Promise.resolve();
 
 export function useGlobalShortcut() {
   // Global shortcuts (work even when window is not focused)
   useEffect(() => {
+    if (getCurrentWebviewWindow().label !== "launcher") return;
     const shortcuts: string[] = [];
+    let cancelled = false;
+    let starting = false;
+
+    async function dispatch(command: GlobalMeetingShortcut) {
+      if (cancelled || starting || !useConfigStore.getState()._loaded) return;
+      const store = useMeetingStore.getState();
+      starting = true;
+      try {
+        await dispatchMeetingShortcut(command, !!store.activeMeeting,
+          useConfigStore.getState().rememberedMeetingSetup, {
+            start: (audioMode, scenario) => store.startMeetingFlow(undefined, audioMode, scenario),
+            overlay: (command) => emitTo("overlay", "nexq:meeting_shortcut", command),
+            settings: () => store.setSettingsOpen(!store.settingsOpen),
+          });
+      } catch (error) {
+        console.warn("[shortcuts] Meeting shortcut failed:", error);
+      } finally {
+        starting = false;
+      }
+    }
 
     async function registerShortcuts() {
       // Register each shortcut independently — one failure shouldn't block the rest.
-      // Unregister first to handle hot-reload / React strict mode re-mounts.
+      // Only the launcher registers these process-wide shortcuts.
       const defs: Array<{ key: string; handler: (event: { state: string }) => void }> = [
         {
           key: "CmdOrCtrl+M",
           handler: (event) => {
             if (event.state === "Pressed") {
-              const store = useMeetingStore.getState();
-              if (store.activeMeeting) {
-                store.endMeetingFlow().catch(() => {});
-              } else {
-                store.startMeetingFlow().catch(() => {});
-              }
+              void dispatch('toggle-meeting');
             }
           },
         },
@@ -34,14 +59,7 @@ export function useGlobalShortcut() {
           key: "CmdOrCtrl+B",
           handler: (event) => {
             if (event.state === "Pressed") {
-              const store = useMeetingStore.getState();
-              if (store.currentView === "overlay") {
-                store.setCurrentView("launcher");
-                showLauncherWindow().catch(() => {});
-              } else if (store.activeMeeting) {
-                store.setCurrentView("overlay");
-                showOverlayWindow().catch(() => {});
-              }
+              void dispatch('toggle-view');
             }
           },
         },
@@ -49,14 +67,14 @@ export function useGlobalShortcut() {
           key: "CmdOrCtrl+,",
           handler: (event) => {
             if (event.state === "Pressed") {
-              const store = useMeetingStore.getState();
-              store.setSettingsOpen(!store.settingsOpen);
+              void dispatch('toggle-settings');
             }
           },
         },
       ];
 
       for (const { key, handler } of defs) {
+        if (cancelled) break;
         try {
           await unregister(key).catch(() => {}); // Clean up stale registration
           await register(key, handler);
@@ -67,17 +85,53 @@ export function useGlobalShortcut() {
       }
     }
 
-    registerShortcuts();
+    shortcutLease = shortcutLease.then(registerShortcuts);
 
     return () => {
-      shortcuts.forEach((s) => {
-        unregister(s).catch(() => {});
+      cancelled = true;
+      shortcutLease = shortcutLease.then(async () => {
+        for (const key of shortcuts) await unregister(key).catch(() => {});
       });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (getCurrentWebviewWindow().label !== "overlay") return;
+    let cancelled = false;
+    let ending = false;
+    const subscription = listen<OverlayMeetingShortcut>("nexq:meeting_shortcut", async ({ payload }) => {
+      const store = useMeetingStore.getState();
+      if (cancelled || !store.activeMeeting) return;
+      try {
+        if (payload === 'end-meeting') {
+          if (ending) return;
+          ending = true;
+          // The overlay has the AI call log; ending from the launcher loses it.
+          try { await store.endMeetingFlow(); } finally { ending = false; }
+        } else if (payload === 'toggle-view') {
+          if (store.currentView === 'overlay') {
+            store.setCurrentView('launcher');
+            await showLauncherWindow();
+          } else {
+            store.setCurrentView('overlay');
+            await showOverlayWindow();
+          }
+        } else if (payload === 'toggle-settings') {
+          store.setSettingsOpen(!store.settingsOpen);
+        }
+      } catch (error) {
+        console.warn('[shortcuts] Overlay command failed:', error);
+      }
+    });
+    return () => {
+      cancelled = true;
+      void subscription.then((unlisten) => unlisten());
     };
   }, []);
 
   // Window-level shortcuts (work when window is active/focused)
   useEffect(() => {
+    if (getCurrentWebviewWindow().label !== "overlay") return;
     function handleKeyDown(e: KeyboardEvent) {
       const store = useMeetingStore.getState();
       if (!store.activeMeeting) return;
