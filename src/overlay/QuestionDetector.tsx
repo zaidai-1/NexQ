@@ -1,11 +1,12 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { HelpCircle, Sparkles, Check, Clock, X } from "lucide-react";
 import { generateAssist } from "../lib/ipc";
 import { useTranscriptStore } from "../stores/transcriptStore";
 import type { DetectedQuestion } from "../lib/types";
 import { AutomaticQuestionGate, questionIdentity } from "../lib/questionIdentity";
 import { showToast } from "../stores/toastStore";
-import { RemoteQuestionAssembler } from "../lib/remoteQuestion";
+import { selectLatestRemoteQuestion } from "../lib/remoteQuestion";
+import { useStreamStore } from "../stores/streamStore";
 
 interface TrackedQuestion extends DetectedQuestion {
   assisted: boolean;
@@ -14,10 +15,11 @@ interface TrackedQuestion extends DetectedQuestion {
 
 export function QuestionDetector() {
   const [questions, setQuestions] = useState<TrackedQuestion[]>([]);
-  const processedIdsRef = useRef<Set<string>>(new Set());
+  const observedQuestionRef = useRef<string | null>(null);
   const autoAssistedRef = useRef(new AutomaticQuestionGate());
-  const assemblerRef = useRef(new RemoteQuestionAssembler());
   const segments = useTranscriptStore((s) => s.segments);
+  const isStreaming = useStreamStore((s) => s.isStreaming);
+  const currentRemoteQuestion = useMemo(() => selectLatestRemoteQuestion(segments, Date.now()), [segments]);
 
   const addQuestion = useCallback((q: DetectedQuestion & { turnId?: string }) => {
     setQuestions((prev) => {
@@ -30,15 +32,15 @@ export function QuestionDetector() {
   // Final transcript segments are the single automatic question source.
   // Backend sentence detections otherwise re-submit suffixes of the same turn.
   useEffect(() => {
-    for (const seg of segments) {
-      if (seg.is_final && !processedIdsRef.current.has(seg.id)) {
-        processedIdsRef.current.add(seg.id);
-        const question = assemblerRef.current.push(seg);
-        if (question) addQuestion(question);
-      }
-      if (seg.is_final) processedIdsRef.current.add(seg.id);
+    // Replay the current store so a corrected final segment and out-of-order
+    // STT completion can update a question. An ID alone is not a revision.
+    const question = currentRemoteQuestion;
+    if (question) {
+      const revision = `${question.turnId}:${question.timestamp_ms}:${questionIdentity(question.text)}`;
+      if (observedQuestionRef.current !== revision) addQuestion(question);
+      observedQuestionRef.current = revision;
     }
-  }, [segments, addQuestion]);
+  }, [currentRemoteQuestion, addQuestion]);
 
   const handleAssist = useCallback((index: number) => {
     const questionText = questions[index]?.text;
@@ -63,10 +65,13 @@ export function QuestionDetector() {
   // The Auto-Trigger setting mounts this component. Generate the suggestion
   // when a new remote question arrives instead of waiting for a card click.
   useEffect(() => {
-    if (!latest || latest.assisted) return;
+    // Keep the newest question pending while an answer streams. Claiming it
+    // before the backend is free otherwise drops it as "already in progress".
+    if (!latest || latest.assisted || isStreaming || !currentRemoteQuestion
+      || latest.text !== currentRemoteQuestion.text || latest.timestamp_ms !== currentRemoteQuestion.timestamp_ms) return;
     if (!autoAssistedRef.current.claim(latest.text, Date.now())) return;
     handleAssist(0);
-  }, [latest, handleAssist]);
+  }, [latest, handleAssist, isStreaming, currentRemoteQuestion]);
 
   return (
     <div className="flex flex-col gap-2.5" role="region" aria-label="Detected questions">

@@ -1,10 +1,33 @@
 import { questionIdentity } from './questionIdentity.ts';
 
-type Segment = { id: string; text: string; speaker: string; timestamp_ms: number; is_final: boolean };
+export type RemoteSegment = { id: string; text: string; speaker: string; timestamp_ms: number; is_final: boolean };
+type Segment = RemoteSegment;
 export type RemoteQuestion = { text: string; timestamp_ms: number; source: 'Them' | 'Interviewer'; confidence: number; turnId: string };
+const TURN_GAP_MS = 15_000; // Whisper can split continuous speech at its 12-second turn limit.
+
+function questionLead(text: string): string {
+  return text.replace(/^(?:(?:okay|alright|all right|so|and|uh|um|you know|sounds good)[\s,.:!…-]+)+/i, '');
+}
+
+function hasQuestionLead(text: string): boolean {
+  const lead = questionLead(text);
+  if (/^why not to\b/i.test(lead)) return false; // Rhetorical introduction: "why not to meet and find out ...".
+  return /^(?:what|how|why|when|where|who|which|can you|could you|would you|should you|do you|did you|are you|is there|have you|tell me|explain|describe|walk me|give me)\b/i.test(lead);
+}
 
 function startsQuestion(text: string): boolean {
-  return /^(?:(?:okay|alright|all right|so|and)[,\s]+)*(?:what|how|why|when|where|who|which|can you|could you|would you|do you|are you|is there|have you|tell me|explain|describe|walk me)\b/i.test(text);
+  const lead = questionLead(text);
+  return hasQuestionLead(text)
+    // Real callers embed requests after a conversational lead-in and often
+    // Whisper finishes them with a period rather than a question mark.
+    || /\b(?:i (?:would like|want) to know|i'd like to know|please (?:explain|describe|tell|share)|any (?:other )?questions?)\b/i.test(lead)
+    || /\b(?:what(?:'s| is| are| do| does| would| will| exactly| kind| approach| about| were| was| did| have| has| can| should| your)|how (?:much|many|do|does|would|will|are|is|have|can|could|should|did)|(?:are|do|did|have|will|can|could|would|should) you(?!\s+know\b))\b/i.test(lead);
+}
+
+function isIncomplete(text: string): boolean {
+  if (/(?:\.\.\.|…)[\s?.!,]*$/.test(text)) return true;
+  const ending = text.replace(/[\s?.!,]+$/, '');
+  return /\b(you've|you have|your|the|a|and|or|to|of|about|what were your|for example|have you ever|have you|can you|could you|would you|should you|will you|do you|did you|are you|what exactly|how much|how many)$/i.test(ending);
 }
 
 /** Assemble final remote STT segments; never split one turn into sentence questions. */
@@ -13,9 +36,20 @@ export class RemoteQuestionAssembler {
   private priorQuestion: RemoteQuestion | null = null;
   private context = '';
   private emittedParts = 0;
+  private currentQuestion: RemoteQuestion | null = null;
+
+  /** A newer remote statement or unfinished question supersedes the old one. */
+  getCurrentQuestion(): RemoteQuestion | null {
+    return this.currentQuestion;
+  }
 
   push(segment: Segment): RemoteQuestion | null {
-    if (!segment.is_final) return null;
+    if (!segment.is_final) {
+      if ((segment.speaker === 'Them' || segment.speaker === 'Interviewer') && segment.text.trim()) {
+        this.currentQuestion = null;
+      }
+      return null;
+    }
     if (segment.speaker !== 'Them' && segment.speaker !== 'Interviewer') {
       this.parts = [];
       this.context = '';
@@ -27,6 +61,16 @@ export class RemoteQuestionAssembler {
     let last: Segment | undefined = this.parts[this.parts.length - 1];
     if (last && segment.timestamp_ms - last.timestamp_ms <= 10_000
         && questionIdentity(last.text) === questionIdentity(text)) return null;
+    this.currentQuestion = null;
+    // A caller may abandon "What is your ..." and insert their own background
+    // story. That statement is not the grammatical completion of the question.
+    if (last && isIncomplete(last.text) && !startsQuestion(text)
+      && /^(?:it's been|it has been|i(?:'ve| have| am|'m| think| would)|we(?:'ve| have| are|'re))\b/i.test(questionLead(text))) {
+      this.parts = [];
+      this.context = '';
+      this.emittedParts = 0;
+      last = undefined;
+    }
     // A fresh scenario can precede a short question ("Our campaign ... How
     // would you fix that?"). It must not inherit the previous answered topic.
     const newScenario = !startsQuestion(text)
@@ -49,11 +93,14 @@ export class RemoteQuestionAssembler {
     // Preserve only an unsubmitted nearby scenario; an already emitted topic
     // must not be pulled into a new, otherwise context-free question.
     const completesPendingScenario = !!last && this.emittedParts === 0
-      && segment.timestamp_ms - last.timestamp_ms <= 10_000
+      && segment.timestamp_ms - last.timestamp_ms <= TURN_GAP_MS
       && this.parts.some(p => !startsQuestion(p.text))
       && /^(?:(?:okay|alright|all right|so|and)[,\s]+)*(?:how|what)\s+(?:would|will|do|can|could|should)\s+you\s+(?:investigate|check|diagnose|test)(?:\s+(?:first|next))?[?.!]*$/i.test(text);
-    if (!last || segment.timestamp_ms - last.timestamp_ms > 10_000
-        || (startsQuestion(text) && !refersBack && !completesPendingScenario)) {
+    const continuesIncompleteQuestion = !!last && this.emittedParts === 0
+      && (this.parts.some(p => startsQuestion(p.text)) || startsQuestion(this.context))
+      && isIncomplete(last.text) && !hasQuestionLead(text);
+    if (!last || segment.timestamp_ms - last.timestamp_ms > TURN_GAP_MS
+        || (startsQuestion(text) && !refersBack && !completesPendingScenario && !continuesIncompleteQuestion)) {
       this.parts = [];
       this.context = '';
       this.emittedParts = 0;
@@ -75,13 +122,35 @@ export class RemoteQuestionAssembler {
     const joined = this.parts.map(p => p.text).join(' ');
     const words = joined.split(/\s+/).length;
     // Hold obvious unfinished phrases, even when Whisper adds a question mark.
-    if (/\b(you've|you have|your|the|a|and|or|to|of|about|what were your|for example)[\s?.!,]*$/i.test(text)) return null;
+    if (isIncomplete(text)) return null;
     if (words < 3 || !(text.endsWith('?') || (startsQuestion(joined) && words >= 6))) return null;
     const question: RemoteQuestion = { text: this.context ? `Earlier question: ${this.context}\nCurrent question: ${joined}` : joined,
       timestamp_ms: segment.timestamp_ms, source: segment.speaker,
       confidence: 0.8, turnId: this.parts[0].id };
     this.priorQuestion = { ...question, text: joined };
     this.emittedParts = this.parts.length;
+    this.currentQuestion = question;
     return question;
   }
+}
+
+/** Shared by manual Assist/Say and automatic detection; never use own speech. */
+export function selectLatestRemoteQuestion(segments: RemoteSegment[], now: number): RemoteQuestion | null {
+  const assembler = new RemoteQuestionAssembler();
+  const unique = new Map(segments.map(segment => [segment.id, segment]));
+  for (const segment of [...unique.values()].sort((a, b) => a.timestamp_ms - b.timestamp_ms)) {
+    assembler.push(segment);
+  }
+  const question = assembler.getCurrentQuestion();
+  return question && now - question.timestamp_ms <= 120_000 ? question : null;
+}
+
+export function resolveAssistanceQuestion(mode: string, customQuestion: string | undefined,
+  segments: RemoteSegment[], now: number): string | undefined {
+  if (customQuestion?.trim() || (mode !== 'Assist' && mode !== 'WhatToSay')) return customQuestion;
+  const question = selectLatestRemoteQuestion(segments, now);
+  if (!question) {
+    throw new Error('No complete question from the other party yet. Wait for the question to finish, or type it in Ask.');
+  }
+  return question.text;
 }

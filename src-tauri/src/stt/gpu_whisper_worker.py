@@ -12,6 +12,28 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+
+def diagnostic(stage, **fields):
+    """Emit metadata only; never print audio, transcript, paths or exception text."""
+    print("NEXQ_DIAGNOSTIC " + json.dumps({"stage": stage, "fields": fields}),
+          file=sys.stderr, flush=True)
+
+
+diagnostic_operation = "imports"
+worker_started = time.monotonic()
+
+
+def report_uncaught(exc_type, _exc, _traceback):
+    diagnostic("gpu_worker_error", operation=diagnostic_operation,
+               error_kind=exc_type.__name__)
+
+
+# Missing numpy/faster-whisper and CUDA initialization failures previously
+# disappeared into null stderr on ordinary Explorer launches.
+sys.excepthook = report_uncaught
+threading.excepthook = lambda args: report_uncaught(args.exc_type, args.exc_value, args.exc_traceback)
+diagnostic("gpu_worker_starting", worker_pid=os.getpid())
+
 import numpy as np
 
 
@@ -36,19 +58,22 @@ VAD_PARAMETERS = dict(
     min_silence_duration_ms=100, speech_pad_ms=100,
 )
 
+diagnostic_operation = "model_load"
 try:
     model = WhisperModel(
         "h2oai/faster-whisper-large-v3-turbo", device="cuda",
         compute_type="int8_float16", local_files_only=True,
     )
     model_name = "large-v3-turbo"
-except (OSError, ValueError):
+except (OSError, ValueError) as exc:
     # Keep existing offline installations usable until Turbo is downloaded.
+    diagnostic("gpu_worker_model_fallback", model="large-v3", error_kind=type(exc).__name__)
     model = WhisperModel("large-v3", device="cuda", compute_type="int8_float16", local_files_only=True)
     model_name = "large-v3"
 model_lock = threading.Lock()
 # Initialize CUDA kernels before the first real question. This moves the
 # one-time 2-3 second inference penalty into meeting startup.
+diagnostic_operation = "warmup"
 warm_segments, _ = model.transcribe(
     np.zeros(16_000, dtype=np.float32),
     language="en", beam_size=1, vad_filter=False,
@@ -88,15 +113,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         raw = self.rfile.read(size)
         samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        queued_at = time.monotonic()
+        operation = "vad"
         try:
             with model_lock:
+                decode_started = time.monotonic()
+                queue_ms = round((decode_started - queued_at) * 1000)
                 # Gate noise with VAD, but decode the original turn. Trimming
                 # to VAD spans can remove quiet question prefixes/names in
                 # telephone-band audio (e.g. "What did you do for CHC...").
                 speech_spans = get_speech_timestamps(samples, VadOptions(**VAD_PARAMETERS))
                 if not speech_spans:
-                    self.respond(200, {"text": ""})
+                    self.respond(200, {"text": "", "diagnostics": {
+                        "queue_ms": queue_ms, "decode_ms": round((time.monotonic() - decode_started) * 1000),
+                        "speech_detected": False, "segments_accepted": 0, "segments_rejected": 0,
+                    }})
                     return
+                operation = "decode"
                 segments, _ = model.transcribe(
                     samples,
                     language="en",
@@ -112,16 +145,20 @@ class Handler(BaseHTTPRequestHandler):
                 # 0.59 no-speech / -1.28 log probability, while spoken test
                 # questions were below 0.03 no-speech.
                 accepted = []
+                rejected = 0
                 for segment in segments:
                     words = segment.text.strip()
                     if not re.search(r"[A-Za-z0-9]", words):
+                        rejected += 1
                         continue
                     if segment.no_speech_prob > 0.5 and segment.avg_logprob < -0.5:
+                        rejected += 1
                         continue
                     # Turbo reports near-zero no-speech probability even on
                     # quiet mic noise; low log probability catches those
                     # hallucinations without rejecting the tested questions.
                     if model_name == "large-v3-turbo" and segment.avg_logprob < -0.75:
+                        rejected += 1
                         continue
                     accepted.append(words)
                 text = " ".join(accepted).strip()
@@ -129,9 +166,15 @@ class Handler(BaseHTTPRequestHandler):
                 # Narrow marketing collocation; do not rewrite ordinary feet
                 # measurements or infer a missing question from a fragment.
                 text = re.sub(r"\bfeet(?=\s+offers?\b)", "feed", text, flags=re.IGNORECASE)
-            self.respond(200, {"text": text})
+                decode_ms = round((time.monotonic() - decode_started) * 1000)
+            self.respond(200, {"text": text, "diagnostics": {
+                "queue_ms": queue_ms, "decode_ms": decode_ms, "speech_detected": True,
+                "segments_accepted": len(accepted), "segments_rejected": rejected,
+            }})
         except Exception as exc:
-            self.respond(500, {"error": str(exc)})
+            diagnostic("gpu_worker_transcription_error", operation=operation,
+                       error_kind=type(exc).__name__)
+            self.respond(500, {"error": "transcription failed"})
 
 
 if __name__ == "__main__":
@@ -156,4 +199,8 @@ if __name__ == "__main__":
                     os._exit(0)
 
         threading.Thread(target=stop_with_parent, daemon=True).start()
-    ThreadingHTTPServer(("127.0.0.1", 18765), Handler).serve_forever()
+    diagnostic_operation = "server"
+    server = ThreadingHTTPServer(("127.0.0.1", 18765), Handler)
+    diagnostic("gpu_worker_ready", model=model_name,
+               startup_ms=round((time.monotonic() - worker_started) * 1000))
+    server.serve_forever()

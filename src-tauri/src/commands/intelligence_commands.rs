@@ -169,11 +169,13 @@ pub async fn generate_assist(
                 .as_millis() as u64,
             source: "user-selected".to_string(),
         })
-    } else if include_question {
-        // No custom question — use auto-detected question if the action's toggle allows it
+    } else if include_question && transcript_segments.is_none() {
+        // Only legacy callers without a frontend transcript use the backend
+        // sentence detector. Frontend Assist/Say resolves the assembled remote
+        // question explicitly, including continuations and speaker ownership.
         last_question
     } else {
-        // Action has include_detected_question=false and no custom question
+        // Never inject an unrelated/stale backend sentence into frontend calls.
         None
     };
 

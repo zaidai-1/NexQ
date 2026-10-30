@@ -23,8 +23,13 @@ jobs:
       - run: node scripts/test-question-identity.mjs
       - run: node scripts/test-remote-question.mjs
       - run: node scripts/test-meeting-shortcut.mjs
+      - run: node scripts/test-interview-question-routing.mjs
+      - run: python scripts/test-gpu-whisper-diagnostics.py
       - run: npm run tauri build -- --no-bundle
       - run: cargo test --manifest-path src-tauri/Cargo.toml --lib assist_warmup
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib single_instance
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib timing
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --lib question_routing
       - uses: actions/upload-artifact@v4
         with:
           name: nexq-local-test-windows

@@ -23,6 +23,24 @@ pub struct QuestionDetectedPayload {
     pub question: DetectedQuestion,
 }
 
+#[cfg(test)]
+mod question_routing_tests {
+    use super::IntelligenceEngine;
+
+    #[test]
+    fn question_routing_expires_legacy_fallback_and_preserves_remote_ownership() {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap().as_millis() as u64;
+        let mut engine = IntelligenceEngine::new();
+        engine.push_transcript("How would you improve lead quality?".into(), "Them".into(), now, true);
+        engine.push_transcript("I'm good. How are you?".into(), "User".into(), now + 1, true);
+        assert_eq!(engine.last_detected_question().unwrap().source, "Them");
+        engine.clear_session();
+        engine.push_transcript("How would you improve lead quality?".into(), "Them".into(), now - 180_000, true);
+        assert!(engine.last_detected_question().is_none());
+    }
+}
+
 /// Orchestrates: read transcript -> detect question -> load context -> build prompt -> LLM stream
 pub struct IntelligenceEngine {
     pub transcript_buffer: TranscriptBuffer,
@@ -225,7 +243,10 @@ impl IntelligenceEngine {
 
     /// Get the most recently detected question.
     pub fn last_detected_question(&self) -> Option<&DetectedQuestion> {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default().as_millis() as u64;
         self.last_detected_question.as_ref()
+            .filter(|q| now.saturating_sub(q.timestamp_ms) <= 120_000)
     }
 
     /// Get recent transcript text within the configured window.

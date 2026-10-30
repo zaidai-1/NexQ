@@ -2,6 +2,7 @@
 //! Faster Whisper worker on loopback; audio never leaves this PC.
 
 use async_trait::async_trait;
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -25,25 +26,56 @@ async fn health(client: &reqwest::Client) -> bool {
 
 async fn ensure_worker(client: &reqwest::Client) -> Result<(), String> {
     let _guard = START_LOCK.get_or_init(|| Mutex::new(())).lock().await;
-    if health(client).await { return Ok(()); }
+    if health(client).await {
+        crate::timing::record("gpu_worker_reused", serde_json::json!({}));
+        return Ok(());
+    }
 
+    let started_ms = crate::timing::now_ms();
     let script = std::env::temp_dir().join("nexq_gpu_whisper_worker.py");
     std::fs::write(&script, include_str!("gpu_whisper_worker.py"))
-        .map_err(|e| format!("Cannot write GPU Whisper worker: {e}"))?;
+        .map_err(|e| {
+            crate::timing::record("gpu_worker_error", serde_json::json!({"operation":"write_script","error_kind":"io_error"}));
+            format!("Cannot write GPU Whisper worker: {e}")
+        })?;
     let mut command = Command::new("python");
     command.arg(&script).arg(std::process::id().to_string())
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    command.spawn().map_err(|e| format!("Cannot start Python GPU Whisper: {e}"))?;
+    let mut child = command.spawn().map_err(|e| {
+        crate::timing::record("gpu_worker_error", serde_json::json!({"operation":"spawn","error_kind":"io_error"}));
+        format!("Cannot start Python GPU Whisper: {e}")
+    })?;
+    crate::timing::record("gpu_worker_spawned", serde_json::json!({"worker_pid":child.id()}));
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                // Only structured, allowlisted metadata is retained. Never raw stderr.
+                crate::timing::record_worker_line(&line);
+            }
+        });
+    }
 
     for _ in 0..60 {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        if health(client).await { return Ok(()); }
+        if health(client).await {
+            crate::timing::record("gpu_worker_available", serde_json::json!({"startup_ms":crate::timing::now_ms().saturating_sub(started_ms)}));
+            return Ok(());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            crate::timing::record("gpu_worker_error", serde_json::json!({
+                "operation":"startup","error_kind":"worker_exited","status":status.code(),
+                "startup_ms":crate::timing::now_ms().saturating_sub(started_ms)
+            }));
+            return Err("GPU Whisper worker exited during startup. Check the local diagnostics for the failure category.".into());
+        }
     }
+    crate::timing::record("gpu_worker_error", serde_json::json!({"operation":"startup","error_kind":"not_ready","timeout":true,
+        "startup_ms":crate::timing::now_ms().saturating_sub(started_ms)}));
     Err("GPU Whisper worker did not start. Check Python, faster-whisper, CUDA libraries, and the cached Large v3 model.".into())
 }
 
@@ -120,7 +152,12 @@ impl GpuWhisperSTT {
                         Ok(json) => {
                             let text = json["text"].as_str().unwrap_or("").trim();
                             crate::timing::record("stt_final", serde_json::json!({
-                                "party": party, "turn": segment_id, "nonempty": !text.is_empty()
+                                "party": party, "turn": segment_id, "nonempty": !text.is_empty(),
+                                "queue_ms":json["diagnostics"]["queue_ms"].as_u64(),
+                                "decode_ms":json["diagnostics"]["decode_ms"].as_u64(),
+                                "speech_detected":json["diagnostics"]["speech_detected"].as_bool(),
+                                "segments_accepted":json["diagnostics"]["segments_accepted"].as_u64(),
+                                "segments_rejected":json["diagnostics"]["segments_rejected"].as_u64()
                             }));
                             if !text.is_empty() {
                                 let _ = tx.send(TranscriptResult {
@@ -134,11 +171,20 @@ impl GpuWhisperSTT {
                                 }).await;
                             }
                         }
-                        Err(e) => log::warn!("GPU Whisper response parse failed: {e}"),
+                        Err(e) => {
+                            crate::timing::record("stt_error", serde_json::json!({"party":party,"turn":segment_id,"error_kind":"response_parse"}));
+                            log::warn!("GPU Whisper response parse failed: {e}");
+                        },
                     }
                 }
-                Ok(resp) => log::warn!("GPU Whisper worker returned {}", resp.status()),
-                Err(e) => log::warn!("GPU Whisper request failed: {e}"),
+                Ok(resp) => {
+                    crate::timing::record("stt_error", serde_json::json!({"party":party,"turn":segment_id,"error_kind":"http_status","status":resp.status().as_u16()}));
+                    log::warn!("GPU Whisper worker returned {}", resp.status());
+                },
+                Err(e) => {
+                    crate::timing::record("stt_error", serde_json::json!({"party":party,"turn":segment_id,"error_kind":if e.is_timeout() {"request_timeout"} else if e.is_connect() {"connection"} else {"request"},"timeout":e.is_timeout()}));
+                    log::warn!("GPU Whisper request failed: {e}");
+                },
             }
         });
     }

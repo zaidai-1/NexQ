@@ -198,13 +198,16 @@ export async function generateAssist(mode: string, customQuestion?: string): Pro
   // (the single source of truth — every STT engine feeds into it).
   // The backend applies the per-action transcript window setting.
   const { useTranscriptStore } = await import("../stores/transcriptStore");
-  const segments = useTranscriptStore.getState().segments
+  const allSegments = useTranscriptStore.getState().segments;
+  const { resolveAssistanceQuestion } = await import("./remoteQuestion");
+  const selectedQuestion = resolveAssistanceQuestion(mode, customQuestion, allSegments, Date.now());
+  const segments = allSegments
     .filter(s => s.is_final)
     .map(s => ({ text: s.text, speaker: s.speaker, timestamp_ms: s.timestamp_ms }));
 
   return invoke("generate_assist", {
     mode,
-    customQuestion,
+    customQuestion: selectedQuestion,
     transcriptSegments: JSON.stringify(segments),
   });
 }

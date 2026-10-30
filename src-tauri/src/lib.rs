@@ -12,6 +12,8 @@ pub mod stt;
 pub mod translation;
 pub mod tray;
 pub mod timing;
+#[cfg(target_os = "windows")]
+mod single_instance;
 
 use state::AppState;
 use std::sync::{Arc, Mutex};
@@ -161,7 +163,13 @@ pub fn run() {
         env_logger::Env::default().default_filter_or("info")
     ).init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must run before any shortcut, audio, database or WebView setup. The
+    // identity is per Windows user, independent of executable/data paths.
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(single_instance::plugin());
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

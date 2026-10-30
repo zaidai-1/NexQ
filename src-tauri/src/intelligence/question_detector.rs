@@ -59,6 +59,11 @@ impl QuestionDetector {
     /// Returns a list of detected questions with confidence scores.
     pub fn detect_questions(&self, text: &str, timestamp_ms: u64, source: &str) -> Vec<DetectedQuestion> {
         let mut questions: Vec<DetectedQuestion> = Vec::new();
+        // Microphone/Web Speech labels the candidate as User/You. A question
+        // spoken in their answer must never replace the interviewer's question.
+        if source == "User" || source == "You" {
+            return questions;
+        }
 
         // Split text into sentences
         let sentences = split_sentences(text);
@@ -66,6 +71,11 @@ impl QuestionDetector {
         for sentence in &sentences {
             let trimmed = sentence.trim();
             if trimmed.is_empty() || trimmed.len() < 5 {
+                continue;
+            }
+            let ending = trimmed.trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace()).to_lowercase();
+            if ["have you ever", "have you", "can you", "could you", "would you", "what is your", "what were your", "what exactly"]
+                .iter().any(|fragment| ending.ends_with(*fragment)) {
                 continue;
             }
 
@@ -134,4 +144,25 @@ fn split_sentences(text: &str) -> Vec<String> {
     }
 
     sentences
+}
+
+#[cfg(test)]
+mod tests {
+    use super::QuestionDetector;
+
+    #[test]
+    fn question_routing_ignores_candidate_questions() {
+        let detector = QuestionDetector::new();
+        assert!(detector.detect_questions("I'm good. How are you?", 1_000, "User").is_empty());
+        assert!(detector.detect_questions("What do you usually do with foreign clients?", 2_000, "You").is_empty());
+        assert_eq!(detector.detect_questions("How would you improve lead quality?", 3_000, "Them").len(), 1);
+    }
+
+    #[test]
+    fn question_routing_does_not_store_bare_fragments() {
+        let detector = QuestionDetector::new();
+        assert!(detector.detect_questions("Okay, so... have you ever", 1_000, "Them").is_empty());
+        assert!(detector.detect_questions("What is your...", 2_000, "Them").is_empty());
+        assert_eq!(detector.detect_questions("Have you ever worked with IT companies?", 3_000, "Them").len(), 1);
+    }
 }
