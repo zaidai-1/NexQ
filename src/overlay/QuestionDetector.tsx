@@ -155,7 +155,7 @@ export function QuestionDetector() {
                 onClick={() => !q.assisted && handleAssist(realIdx)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleAssist(realIdx); } }}
+                onKeyDown={(e) => handleQuestionCardKey(e, () => handleAssist(realIdx))}
                 title={q.text}
               >
                 <div className="shrink-0">
