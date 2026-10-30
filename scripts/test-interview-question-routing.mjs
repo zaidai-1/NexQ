@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { RemoteQuestionAssembler, resolveAssistanceQuestion, selectLatestRemoteQuestion } from '../src/lib/remoteQuestion.ts';
+import { handleQuestionCardKey } from '../src/lib/questionInteraction.ts';
 
 // Redacted wording/turn boundaries from the failed October30 interview. This
 // exercises manual Space/Say selection as well as automatic question assembly.
@@ -76,4 +77,28 @@ assert.match(automatic.push(seg(completion, 13000)).text, /have you ever work wi
 assert.equal(new RemoteQuestionAssembler().push(seg('you know, why not to meet and find out if you can be a good fit for us.', 1000)), null);
 assert.equal(new RemoteQuestionAssembler().push(seg('we are you know open ai partner and we are focusing on implementation', 1000)), null,
   'The filler you know inside we are is not the question are you.');
+
+// A focused historical card used to answer its old text on Space and then
+// bubble into the global shortcut. Reproduce that real native focus path.
+let oldCardSelections = 0;
+let currentGenerations = 0;
+let propagationStopped = false;
+let defaultPrevented = false;
+const cardKey = key => ({key, preventDefault: () => {defaultPrevented = true;},
+  stopPropagation: () => {propagationStopped = true;}});
+handleQuestionCardKey(cardKey(' '), () => {oldCardSelections++;});
+if (!propagationStopped) {
+  assert.throws(() => resolveAssistanceQuestion('Assist', undefined, segments, base+401000), /No complete question/);
+}
+assert.equal(oldCardSelections, 0, 'Space must not explicitly resubmit a stale focused card.');
+assert.equal(defaultPrevented, false, 'The global current-question shortcut must receive Space.');
+handleQuestionCardKey(cardKey(' '), () => {oldCardSelections++;});
+if (!propagationStopped) {
+  resolveAssistanceQuestion('Assist', undefined, [seg('What did you build in GoHighLevel?', 500000)], base+501000);
+  currentGenerations++;
+}
+assert.equal(currentGenerations, 1, 'Focused-card Space must generate the fresh question once.');
+handleQuestionCardKey(cardKey('Enter'), () => {oldCardSelections++;});
+assert.equal(oldCardSelections, 1, 'Enter remains an explicit historical-card selection.');
+assert.equal(propagationStopped, true);
 console.log('Actual interview question routing regression checks passed.');

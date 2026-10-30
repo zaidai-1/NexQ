@@ -7,6 +7,7 @@ import { AutomaticQuestionGate, questionIdentity } from "../lib/questionIdentity
 import { showToast } from "../stores/toastStore";
 import { selectLatestRemoteQuestion } from "../lib/remoteQuestion";
 import { useStreamStore } from "../stores/streamStore";
+import { handleQuestionCardKey } from "../lib/questionInteraction";
 
 interface TrackedQuestion extends DetectedQuestion {
   assisted: boolean;
@@ -81,7 +82,7 @@ export function QuestionDetector() {
           latest ? "cursor-pointer hover:bg-info/10 question-card-enter" : ""
         }`}
         onClick={() => latest && handleAssist(0)}
-        onKeyDown={(e) => { if (latest && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); handleAssist(0); } }}
+        onKeyDown={(e) => { if (latest) handleQuestionCardKey(e, () => handleAssist(0)); }}
         role={latest ? "button" : undefined}
         tabIndex={latest ? 0 : undefined}
         aria-label={latest ? `Question: ${latest.text}. ${latest.assisted ? "Answered" : "Click to assist"}` : undefined}
