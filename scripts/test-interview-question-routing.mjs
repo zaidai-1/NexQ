@@ -78,6 +78,44 @@ assert.equal(new RemoteQuestionAssembler().push(seg('you know, why not to meet a
 assert.equal(new RemoteQuestionAssembler().push(seg('we are you know open ai partner and we are focusing on implementation', 1000)), null,
   'The filler you know inside we are is not the question are you.');
 
+// Actual native Whisper split: the alternatives arrived after a question mark
+// had already emitted the Google Ads stem. Auto and Space/Say must both use
+// the revised full question, rather than losing the suffix or selecting it alone.
+const platformStem = 'Okay, and if I may ask, when it comes to PPC or Google Ads, are you only working on Google Ads?';
+for (const suffix of ['Bing Ads as well as Meta.', 'Or Bing Ads as well as Meta.',
+  'Versus Bing Ads.', 'Including Meta.']) {
+  const split = [seg(platformStem, 1000), seg(suffix, 3079)];
+  const assembler = new RemoteQuestionAssembler();
+  assert.equal(assembler.push(split[0]).text, platformStem);
+  const revised = assembler.push(split[1]);
+  assert.equal(revised.text, `${platformStem} ${suffix}`);
+  assert.equal(resolveAssistanceQuestion('Assist', undefined, split, base+4000), revised.text);
+  assert.equal(resolveAssistanceQuestion('WhatToSay', undefined, split, base+4000), revised.text);
+  assert(!revised.text.includes('Earlier question:'), 'The list completes the current question.');
+}
+for (const interruption of [
+  seg('I work on Google Ads.', 2000, 'User'),
+  seg('Okay, sounds good.', 2000),
+  seg('Our team is expanding into other markets.', 2000),
+  seg('I use WordPress as well as Shopify.', 2000),
+]) {
+  const interrupted = [seg(platformStem, 1000), interruption, seg('Bing Ads as well as Meta.', 3000)];
+  assert.equal(selectLatestRemoteQuestion(interrupted, base+4000), null,
+    'Own speech, acknowledgement or a new statement must break continuation.');
+}
+assert.equal(selectLatestRemoteQuestion([seg(platformStem, 1000), seg('Bing Ads as well as Meta.', 16001)], base+17000), null,
+  'A list suffix cannot revive an older remote turn.');
+assert.equal(selectLatestRemoteQuestion([seg(platformStem, 1000), seg('Bing Ads as well as Meta.', 16000)], base+17000).text,
+  `${platformStem} Bing Ads as well as Meta.`, 'The same-turn 15-second boundary remains inclusive.');
+const multiPartList = new RemoteQuestionAssembler();
+for (const [offset,text] of [[1000,'Are you'], [2000,'only working on'], [3000,'Google Ads and']]) {
+  assert.equal(multiPartList.push(seg(text, offset)), null);
+}
+assert(multiPartList.push(seg('Meta or LinkedIn?', 4000)));
+assert.equal(multiPartList.push(seg('Or Bing Ads.', 5000)).text,
+  'Are you only working on Google Ads and Meta or LinkedIn? Or Bing Ads.',
+  'A list suffix must preserve the lead of a four-part emitted question.');
+
 // A focused historical card used to answer its old text on Space and then
 // bubble into the global shortcut. Reproduce that real native focus path.
 let oldCardSelections = 0;

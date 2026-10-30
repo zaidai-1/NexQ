@@ -30,6 +30,16 @@ function isIncomplete(text: string): boolean {
   return /\b(you've|you have|your|the|a|and|or|to|of|about|what were your|for example|have you ever|have you|can you|could you|would you|should you|will you|do you|did you|are you|what exactly|how much|how many)$/i.test(ending);
 }
 
+function isListContinuation(text: string): boolean {
+  const lead = questionLead(text);
+  return !startsQuestion(text) && lead.split(/\s+/).length <= 20
+    && (/^(?:or|versus|including)\b/i.test(lead) || /\bas well as\b/i.test(lead))
+    // Accept a short list suffix, not an acknowledgement or a new statement.
+    && !/^(?:yes|yeah|yep|no|nope|sure|thanks?|thank you|sounds good|i|we|they|he|she|it|my|our|their|this|that|the|an?)\b/i.test(lead)
+    && !/\b(?:is|are|was|were|has|have|had|will|would|can|could|should|do|does|did)\b/i.test(lead)
+    && !/[.!?]\s+\S/.test(lead);
+}
+
 /** Assemble final remote STT segments; never split one turn into sentence questions. */
 export class RemoteQuestionAssembler {
   private parts: Segment[] = [];
@@ -66,6 +76,15 @@ export class RemoteQuestionAssembler {
     let last: Segment | undefined = this.parts[this.parts.length - 1];
     if (last && segment.timestamp_ms - last.timestamp_ms <= 10_000
         && questionIdentity(last.text) === questionIdentity(text)) return null;
+    // Whisper can finalize a question before a caller finishes listing its
+    // alternatives: "...only Google Ads?" / "Bing Ads as well as Meta.".
+    // Revise the complete current question within that same remote turn.
+    // Own speech, an acknowledgement or a newer statement breaks this lease.
+    const extendsEmittedList = !!last && this.emittedParts > 0
+      && this.parts.length === this.emittedParts && last.speaker === segment.speaker
+      && segment.timestamp_ms - last.timestamp_ms >= 0
+      && segment.timestamp_ms - last.timestamp_ms <= TURN_GAP_MS
+      && isListContinuation(text);
     this.currentQuestion = null;
     // A caller may abandon "What is your ..." and insert their own background
     // story. That statement is not the grammatical completion of the question.
@@ -113,7 +132,12 @@ export class RemoteQuestionAssembler {
     }
     // If the speaker continues a just-emitted question, keep the previous
     // wording as context and let the newly completed phrase take priority.
-    if (this.parts.length > 0 && this.parts.length === this.emittedParts) {
+    if (extendsEmittedList) {
+      // Keep all wording even if the emitted question already used four STT
+      // parts; adding this suffix must not evict its leading question clause.
+      this.parts = [{ ...this.parts[0], text: this.parts.map(p => p.text).join(' ') }];
+      this.emittedParts = 0;
+    } else if (this.parts.length > 0 && this.parts.length === this.emittedParts) {
       this.context = this.parts.map(p => p.text).join(' ').slice(-800);
       this.parts = [];
       this.emittedParts = 0;

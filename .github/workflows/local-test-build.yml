@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      NEXQ_MANAGED_LOCAL_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

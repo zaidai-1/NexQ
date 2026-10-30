@@ -16,6 +16,9 @@ pub struct UpdateInfo {
 /// app is already up-to-date.
 #[command]
 pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    // Official releases do not contain this build's local audio/routing fixes.
+    // Managed builds are replaced only with a verified local-build artifact.
+    if option_env!("NEXQ_MANAGED_LOCAL_BUILD") == Some("1") { return Ok(None); }
     let updater = app.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
 
     let update = updater
@@ -40,6 +43,9 @@ pub async fn check_for_update(app: AppHandle) -> Result<Option<UpdateInfo>, Stri
 /// completion.
 #[command]
 pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
+    if option_env!("NEXQ_MANAGED_LOCAL_BUILD") == Some("1") {
+        return Err("This customized local version requires a verified local build to update.".into());
+    }
     let updater = app.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
 
     let update = updater

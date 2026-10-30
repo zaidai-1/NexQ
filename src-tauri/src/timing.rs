@@ -110,7 +110,9 @@ fn open_output() -> Option<Mutex<DiagnosticLog>> {
         }
     }
     let header = format!("{}\n", json!({"stage":"diagnostics_started", "at_ms":now_ms(),
-        "pid":std::process::id(), "fields":{"schema":1,"version":env!("CARGO_PKG_VERSION")}}));
+        "pid":std::process::id(), "fields":{"schema":1,"version":env!("CARGO_PKG_VERSION"),
+            "revision":option_env!("GITHUB_SHA").unwrap_or("local"),
+            "managed_local":option_env!("NEXQ_MANAGED_LOCAL_BUILD") == Some("1")}}));
     let _ = output.write_line(header.as_bytes());
     Some(Mutex::new(output))
 }
