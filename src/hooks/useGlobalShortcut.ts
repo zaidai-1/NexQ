@@ -11,11 +11,18 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { useConfigStore } from "../stores/configStore";
 import { dispatchMeetingShortcut } from "../lib/meetingShortcut";
+import { showToast } from "../stores/toastStore";
 import type { GlobalMeetingShortcut, OverlayMeetingShortcut } from "../lib/meetingShortcut";
 
 // Serialize effect setup/cleanup so React Strict Mode cannot unregister a
 // newer lease after its registration has already completed.
 let shortcutLease = Promise.resolve();
+
+function reportGenerationFailure(error: unknown) {
+  const message = error instanceof Error ? error.message
+    : typeof error === "string" ? error : "Couldn't generate AI response";
+  showToast(message, "error");
+}
 
 export function useGlobalShortcut() {
   // Global shortcuts (work even when window is not focused)
@@ -148,35 +155,35 @@ export function useGlobalShortcut() {
         case "Space":
           if (isVisible("Assist")) {
             e.preventDefault();
-            generateAssist("Assist").catch(() => {});
+            generateAssist("Assist").catch(reportGenerationFailure);
           }
           break;
         case "Numpad1":
         case "Digit1":
           if (!e.ctrlKey && !e.metaKey && !e.altKey && isVisible("WhatToSay")) {
             e.preventDefault();
-            generateAssist("WhatToSay").catch(() => {});
+            generateAssist("WhatToSay").catch(reportGenerationFailure);
           }
           break;
         case "Numpad2":
         case "Digit2":
           if (!e.ctrlKey && !e.metaKey && !e.altKey && isVisible("Shorten")) {
             e.preventDefault();
-            generateAssist("Shorten").catch(() => {});
+            generateAssist("Shorten").catch(reportGenerationFailure);
           }
           break;
         case "Numpad3":
         case "Digit3":
           if (!e.ctrlKey && !e.metaKey && !e.altKey && isVisible("FollowUp")) {
             e.preventDefault();
-            generateAssist("FollowUp").catch(() => {});
+            generateAssist("FollowUp").catch(reportGenerationFailure);
           }
           break;
         case "Numpad4":
         case "Digit4":
           if (!e.ctrlKey && !e.metaKey && !e.altKey && isVisible("Recap")) {
             e.preventDefault();
-            generateAssist("Recap").catch(() => {});
+            generateAssist("Recap").catch(reportGenerationFailure);
           }
           break;
         case "Numpad5":

@@ -58,6 +58,11 @@ export class RemoteQuestionAssembler {
     }
     const text = segment.text.trim();
     if (!text) return null;
+    // Whisper may put a caller's invitation in its own final segment. It is
+    // the hand-off for the current question, not a replacement statement.
+    if (this.currentQuestion
+      && segment.timestamp_ms - this.currentQuestion.timestamp_ms <= 120_000
+      && /^(?:please\s+)?go\s+ahead[.!?]*$/i.test(questionLead(text))) return null;
     let last: Segment | undefined = this.parts[this.parts.length - 1];
     if (last && segment.timestamp_ms - last.timestamp_ms <= 10_000
         && questionIdentity(last.text) === questionIdentity(text)) return null;

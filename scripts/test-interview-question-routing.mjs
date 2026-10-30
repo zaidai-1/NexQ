@@ -13,6 +13,9 @@ assert.throws(() => resolveAssistanceQuestion('Assist', undefined, segments, bas
 const intro = 'I would like to know more about your experience, how and what exactly you have been doing and what kind of clients you have been serving, please go ahead.';
 segments.push(seg(intro, 15000));
 assert.equal(resolveAssistanceQuestion('Assist', undefined, segments, base+16000), intro);
+segments.push(seg('Please go ahead.', 17000));
+assert.equal(resolveAssistanceQuestion('Assist', undefined, segments, base+17500), intro,
+  'A separate caller hand-off must preserve the complete question for Space.');
 segments.push(seg('I work on Google Ads and SEO.', 18000, 'User'));
 assert.equal(resolveAssistanceQuestion('WhatToSay', undefined, segments, base+50000), intro,
   'The interviewer question remains available while the candidate answers.');
@@ -49,6 +52,11 @@ assert.equal(selectLatestRemoteQuestion(segments, base+400000), null, 'A minutes
 assert.throws(() => resolveAssistanceQuestion('Assist', undefined, segments, base+400000), /No complete question/);
 assert.equal(resolveAssistanceQuestion('AskQuestion', 'What did I do for CHC?', segments, base+400000), 'What did I do for CHC?');
 assert.equal(resolveAssistanceQuestion('Recap', undefined, segments, base+400000), undefined);
+segments.push(seg('Please go ahead.', 400000));
+assert.equal(selectLatestRemoteQuestion(segments, base+401000), null,
+  'A hand-off cannot revive an expired question.');
+assert.equal(new RemoteQuestionAssembler().push(seg('Please go ahead.', 1000)), null,
+  'A hand-off alone is not a question.');
 
 // Corrections of a final ID replace the earlier fragment; an in-progress new
 // remote turn blocks accidental reuse until it is final.
