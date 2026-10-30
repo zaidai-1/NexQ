@@ -12,6 +12,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { useConfigStore } from "../stores/configStore";
 import { dispatchMeetingShortcut } from "../lib/meetingShortcut";
 import { showToast } from "../stores/toastStore";
+import { assistanceKeyCode } from "../lib/assistanceKey";
 import type { GlobalMeetingShortcut, OverlayMeetingShortcut } from "../lib/meetingShortcut";
 
 // Serialize effect setup/cleanup so React Strict Mode cannot unregister a
@@ -151,7 +152,7 @@ export function useGlobalShortcut() {
       const actions = useAIActionsStore.getState().configs.actions;
       const isVisible = (mode: string) => actions[mode]?.visible !== false;
 
-      switch (e.code) {
+      switch (assistanceKeyCode(e.code, e.key)) {
         case "Space":
           if (isVisible("Assist")) {
             e.preventDefault();

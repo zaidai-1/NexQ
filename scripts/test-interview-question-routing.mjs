@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { RemoteQuestionAssembler, resolveAssistanceQuestion, selectLatestRemoteQuestion } from '../src/lib/remoteQuestion.ts';
 import { handleQuestionCardKey } from '../src/lib/questionInteraction.ts';
+import { assistanceKeyCode } from '../src/lib/assistanceKey.ts';
 
 // Redacted wording/turn boundaries from the failed October30 interview. This
 // exercises manual Space/Say selection as well as automatic question assembly.
@@ -139,4 +140,19 @@ assert.equal(currentGenerations, 1, 'Focused-card Space must generate the fresh 
 handleQuestionCardKey(cardKey('Enter'), () => {oldCardSelections++;});
 assert.equal(oldCardSelections, 1, 'Enter remains an explicit historical-card selection.');
 assert.equal(propagationStopped, true);
+let nestedCardSelections = 0;
+let nestedDefaultPrevented = false;
+handleQuestionCardKey({key:'Enter',target:{},currentTarget:{},
+  preventDefault:()=>{nestedDefaultPrevented=true;},stopPropagation:()=>{}},
+  ()=>{nestedCardSelections++;});
+assert.equal(nestedCardSelections,0,'Enter on a nested Dismiss button must not select the card.');
+assert.equal(nestedDefaultPrevented,false,'The nested button keeps its native Enter action.');
+for (const code of ['', 'Unidentified']) {
+  assert.equal(assistanceKeyCode(code,' '),'Space');
+  assert.equal(assistanceKeyCode(code,'1'),'Digit1');
+}
+assert.equal(assistanceKeyCode('Space',' '),'Space');
+assert.equal(assistanceKeyCode('Numpad1','End'),'Numpad1');
+assert.equal(assistanceKeyCode('Digit1','!'),'Digit1');
+assert.equal(assistanceKeyCode('KeyA','a'),'KeyA');
 console.log('Actual interview question routing regression checks passed.');
